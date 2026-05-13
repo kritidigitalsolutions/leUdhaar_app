@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
+import 'package:leudaar_app/data/api_response.dart';
 import 'package:leudaar_app/res/app_colors.dart';
 import 'package:leudaar_app/utils/textstyle.dart';
 import 'package:leudaar_app/view_model/before_login/auth_controller.dart';
@@ -63,19 +64,40 @@ class LoginScreen extends StatelessWidget {
                 // ── Mobile field ──────────────────────────────
                 const _SectionLabel("Mobile Number"),
                 const SizedBox(height: 8),
-                PhoneTextField(controller: controller.mobileCtrl),
+                PhoneTextField(controller: controller.loginMobileCtr),
 
                 const SizedBox(height: 28),
 
+                Obx(() {
+                  final state = controller.registerRes.value;
+
+                  if (state == null) return const SizedBox();
+
+                  if (state.status == Status.completed) {
+                    if (state.data?["success"] == false) {
+                      return Text(
+                        state.data?["message"] ?? "",
+                        style: text13(color: AppColors.error),
+                      );
+                    }
+                  }
+
+                  return const SizedBox();
+                }),
+                const SizedBox(height: 32),
                 // ── CTA ───────────────────────────────────────
-                Obx(
-                  () => SendOtpButton(
-                    isLoading: controller.isLoading.value,
-                    onTap: controller.isLoading.value
-                        ? null
-                        : controller.sendOtp,
-                  ),
-                ),
+                Obx(() {
+                  final state = controller.registerRes.value;
+
+                  final isLoading = state?.status == Status.loading;
+
+                  return SendOtpButton(
+                    isLoading: isLoading,
+                    onTap: () {
+                      controller.sendOtp();
+                    },
+                  );
+                }),
                 const SizedBox(height: 20),
 
                 // ── Trust badges ──────────────────────────────

@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:leudaar_app/routes/app_routes.dart';
+import 'package:leudaar_app/utils/service/local_storage/auth_storage.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -19,7 +20,12 @@ class _SplashScreenState extends State<SplashScreen> {
 
   Future<void> _navigateToOnboarding() async {
     await Future.delayed(const Duration(seconds: 3));
-    Get.toNamed(AppRoutes.onBoarding);
+    final token = AuthStorage.getToken();
+    if (token != null && token.isNotEmpty) {
+      Get.offAllNamed(AppRoutes.home);
+    } else {
+      Get.toNamed(AppRoutes.onBoarding);
+    }
   }
 
   @override

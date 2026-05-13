@@ -829,7 +829,7 @@ class _SheetTextField extends StatelessWidget {
               style: const TextStyle(fontSize: 15, color: Color(0xFF1A1A1A)),
             ),
           ),
-          if (suffix != null) suffix!,
+          ?suffix,
         ],
       ),
     );

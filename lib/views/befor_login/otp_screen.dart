@@ -14,6 +14,7 @@ class OtpScreen extends StatefulWidget {
 }
 
 class _OtpScreenState extends State<OtpScreen> {
+  final phone = Get.arguments;
   final controller = Get.find<AuthController>();
   final List<FocusNode> _focusNodes = List.generate(6, (_) => FocusNode());
 
@@ -35,6 +36,9 @@ class _OtpScreenState extends State<OtpScreen> {
     _timer?.cancel();
     for (final node in _focusNodes) {
       node.dispose();
+    }
+    for (final c in controller.otpControllers) {
+      c.clear();
     }
     super.dispose();
   }
@@ -101,8 +105,6 @@ class _OtpScreenState extends State<OtpScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final mobile = Get.arguments?['mobile'] as String? ?? '';
-
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.dark,
       child: Scaffold(
@@ -178,7 +180,7 @@ class _OtpScreenState extends State<OtpScreen> {
                       children: [
                         const TextSpan(text: "Sent to "),
                         TextSpan(
-                          text: "+91 $mobile",
+                          text: "+91 $phone",
                           style: text14(
                             color: AppColors.primary,
                             fontWeight: FontWeight.w600,
@@ -249,12 +251,11 @@ class _OtpScreenState extends State<OtpScreen> {
                   () => _DarkButton(
                     label: "Verify & Continue",
                     isLoading: controller.isLoading.value,
-                    onTap: controller.isLoading.value
-                        ? null
-                        : controller.verifyOtp,
+                    onTap: () {
+                      controller.verifyOtp(phone);
+                    },
                   ),
                 ),
-
                 const SizedBox(height: 20),
 
                 // ── Security note ─────────────────────────────
@@ -316,7 +317,11 @@ class _DarkButton extends StatelessWidget {
   final bool isLoading;
   final VoidCallback? onTap;
 
-  const _DarkButton({required this.label, required this.isLoading, this.onTap});
+  const _DarkButton({
+    required this.label,
+    required this.isLoading,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
+import 'package:leudaar_app/data/api_response.dart';
 import 'package:leudaar_app/res/app_colors.dart';
 import 'package:leudaar_app/routes/app_routes.dart';
 import 'package:leudaar_app/utils/textstyle.dart';
@@ -11,6 +12,8 @@ class SignupScreen extends StatelessWidget {
 
   final controller = Get.put(AuthController());
 
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+
   @override
   Widget build(BuildContext context) {
     return AnnotatedRegion<SystemUiOverlayStyle>(
@@ -20,120 +23,176 @@ class SignupScreen extends StatelessWidget {
         body: SafeArea(
           child: SingleChildScrollView(
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
-            child: Column(
-              children: [
-                // ── Logo ──────────────────────────────────────
-                Container(
-                  width: 72,
-                  height: 72,
-                  decoration: BoxDecoration(
-                    color: AppColors.primary,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  alignment: Alignment.center,
-                  child: Text(
-                    "₹",
-                    style: text40(
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.white,
-                    ).copyWith(height: 1),
-                  ),
-                ),
-
-                const SizedBox(height: 24),
-
-                // ── Headline ──────────────────────────────────
-                Text(
-                  "Create your Account",
-                  style: text24(
-                    fontWeight: FontWeight.w700,
-                  ).copyWith(color: AppColors.textPrimary, letterSpacing: -0.3),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  "Join Leudaar and manage your finances smarter",
-                  style: text14(
-                    fontWeight: FontWeight.normal,
-                  ).copyWith(color: AppColors.textSecondary, height: 1.5),
-                  textAlign: TextAlign.center,
-                ),
-
-                const SizedBox(height: 36),
-
-                // ── Form ──────────────────────────────────────
-                _SectionLabel("Full Name"),
-                const SizedBox(height: 8),
-                _StyledTextField(
-                  controller: controller.nameCtrl,
-                  hintText: 'ex. Rahul Sharma',
-                  icon: Icons.person_outline_rounded,
-                ),
-
-                const SizedBox(height: 20),
-
-                _SectionLabel("Mobile Number"),
-                const SizedBox(height: 8),
-                PhoneTextField(controller: controller.mobileCtrl),
-
-                const SizedBox(height: 32),
-
-                // ── CTA ───────────────────────────────────────
-                Obx(
-                  () => SendOtpButton(
-                    isLoading: controller.isLoading.value,
-                    onTap: controller.isLoading.value
-                        ? null
-                        : controller.sendOtp,
-                  ),
-                ),
-
-                const SizedBox(height: 20),
-
-                // ── Trust badges ──────────────────────────────
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: const [
-                    TrustBadge(label: "SSL Secured"),
-                    SizedBox(width: 10),
-                    TrustBadge(label: "RBI Compliant"),
-                  ],
-                ),
-
-                const SizedBox(height: 32),
-
-                // ── Divider ───────────────────────────────────
-                Row(
-                  children: [
-                    const Expanded(child: Divider(color: AppColors.grey300)),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      child: Text(
-                        "Already a member?",
-                        style: text12(
-                          fontWeight: FontWeight.normal,
-                        ).copyWith(color: AppColors.grey),
-                      ),
+            child: Form(
+              key: _formKey,
+              child: Column(
+                children: [
+                  // ── Logo ──────────────────────────────────────
+                  Container(
+                    width: 72,
+                    height: 72,
+                    decoration: BoxDecoration(
+                      color: AppColors.primary,
+                      borderRadius: BorderRadius.circular(20),
                     ),
-                    const Expanded(child: Divider(color: AppColors.grey300)),
-                  ],
-                ),
-
-                const SizedBox(height: 20),
-
-                // ── Login link ────────────────────────────────
-                GestureDetector(
-                  onTap: () => Get.toNamed(AppRoutes.loginPage),
-                  child: Text(
-                    "Login to your account →",
-                    style: text14(
-                      fontWeight: FontWeight.w600,
-                    ).copyWith(color: AppColors.textPrimary),
+                    alignment: Alignment.center,
+                    child: Text(
+                      "₹",
+                      style: text40(
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.white,
+                      ).copyWith(height: 1),
+                    ),
                   ),
-                ),
 
-                const SizedBox(height: 16),
-              ],
+                  const SizedBox(height: 24),
+
+                  // ── Headline ──────────────────────────────────
+                  Text(
+                    "Create your Account",
+                    style: text24(fontWeight: FontWeight.w700).copyWith(
+                      color: AppColors.textPrimary,
+                      letterSpacing: -0.3,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    "Join Leudaar and manage your finances smarter",
+                    style: text14(
+                      fontWeight: FontWeight.normal,
+                    ).copyWith(color: AppColors.textSecondary, height: 1.5),
+                    textAlign: TextAlign.center,
+                  ),
+
+                  const SizedBox(height: 36),
+
+                  // ── Form ──────────────────────────────────────
+                  _SectionLabel("Full Name"),
+                  const SizedBox(height: 8),
+                  _StyledTextField(
+                    controller: controller.nameCtrl,
+                    hintText: 'ex. Rahul Sharma',
+                    icon: Icons.person_outline_rounded,
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) {
+                        return "Full name is required";
+                      }
+                      if (value.trim().length < 3) {
+                        return "Name must be at least 3 characters";
+                      }
+                      // Optional: Allow only letters and spaces
+                      if (!RegExp(r'^[a-zA-Z\s]+$').hasMatch(value.trim())) {
+                        return "Name can only contain letters and spaces";
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 20),
+
+                  _SectionLabel("Mobile Number"),
+                  const SizedBox(height: 8),
+                  PhoneTextField(
+                    controller: controller.mobileCtrl,
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) {
+                        return "Mobile number is required";
+                      }
+                      if (value.length != 10) {
+                        return "Mobile number must be 10 digits";
+                      }
+                      if (!value.startsWith('6') &&
+                          !value.startsWith('7') &&
+                          !value.startsWith('8') &&
+                          !value.startsWith('9')) {
+                        return "Enter a valid Indian mobile number";
+                      }
+                      return null;
+                    },
+                  ),
+
+                  const SizedBox(height: 15),
+
+                  Obx(() {
+                    final state = controller.registerRes.value;
+
+                    if (state == null) return const SizedBox();
+
+                    if (state.status == Status.completed) {
+                      if (state.data?["success"] == false) {
+                        return Text(
+                          state.data?["message"] ?? "",
+                          style: text13(color: AppColors.error),
+                        );
+                      }
+                    }
+
+                    return const SizedBox();
+                  }),
+                  const SizedBox(height: 32),
+                  // ── CTA ───────────────────────────────────────
+                  Obx(() {
+                    final state = controller.registerRes.value;
+
+                    final isLoading = state?.status == Status.loading;
+
+                    return SendOtpButton(
+                      isLoading: isLoading,
+                      onTap: () {
+                        if (_formKey.currentState!.validate()) {
+                          controller.register();
+                        }
+                      },
+                    );
+                  }),
+
+                  const SizedBox(height: 20),
+
+                  // ── Trust badges ──────────────────────────────
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: const [
+                      TrustBadge(label: "SSL Secured"),
+                      SizedBox(width: 10),
+                      TrustBadge(label: "RBI Compliant"),
+                    ],
+                  ),
+
+                  const SizedBox(height: 32),
+
+                  // ── Divider ───────────────────────────────────
+                  Row(
+                    children: [
+                      const Expanded(child: Divider(color: AppColors.grey300)),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        child: Text(
+                          "Already a member?",
+                          style: text12(
+                            fontWeight: FontWeight.normal,
+                          ).copyWith(color: AppColors.grey),
+                        ),
+                      ),
+                      const Expanded(child: Divider(color: AppColors.grey300)),
+                    ],
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  // ── Login link ────────────────────────────────
+                  GestureDetector(
+                    onTap: () => Get.toNamed(AppRoutes.loginPage),
+                    child: Text(
+                      "Login to your account →",
+                      style: text14(
+                        fontWeight: FontWeight.w600,
+                      ).copyWith(color: AppColors.textPrimary),
+                    ),
+                  ),
+
+                  const SizedBox(height: 16),
+                ],
+              ),
             ),
           ),
         ),
@@ -167,11 +226,14 @@ class _StyledTextField extends StatelessWidget {
   final TextEditingController controller;
   final String hintText;
   final IconData icon;
+  final String? Function(String?)? validator; // Keep this
 
   const _StyledTextField({
+    // Added super.key (good practice)
     required this.controller,
     required this.hintText,
     required this.icon,
+    this.validator, // Optional validator
   });
 
   @override
@@ -189,8 +251,9 @@ class _StyledTextField extends StatelessWidget {
           Icon(icon, size: 20, color: const Color(0xFF9E9A94)),
           const SizedBox(width: 10),
           Expanded(
-            child: TextField(
+            child: TextFormField(
               controller: controller,
+              autovalidateMode: AutovalidateMode.onUserInteraction,
               decoration: InputDecoration(
                 hintText: hintText,
                 hintStyle: const TextStyle(
@@ -204,6 +267,7 @@ class _StyledTextField extends StatelessWidget {
               style: text15(
                 color: AppColors.textPrimary,
               ).copyWith(letterSpacing: 1),
+              validator: validator,
             ),
           ),
         ],
@@ -214,7 +278,8 @@ class _StyledTextField extends StatelessWidget {
 
 class PhoneTextField extends StatelessWidget {
   final TextEditingController controller;
-  const PhoneTextField({required this.controller});
+  final String? Function(String?)? validator; // Keep this
+  const PhoneTextField({super.key, required this.controller, this.validator});
 
   @override
   Widget build(BuildContext context) {
@@ -239,7 +304,8 @@ class PhoneTextField extends StatelessWidget {
           Container(width: 1, height: 20, color: const Color(0xFFE4E1DB)),
           const SizedBox(width: 10),
           Expanded(
-            child: TextField(
+            child: TextFormField(
+              autovalidateMode: AutovalidateMode.onUserInteraction,
               controller: controller,
               keyboardType: TextInputType.phone,
               inputFormatters: [FilteringTextInputFormatter.digitsOnly],
@@ -255,6 +321,7 @@ class PhoneTextField extends StatelessWidget {
               style: text15(
                 color: AppColors.textPrimary,
               ).copyWith(letterSpacing: 1),
+              validator: validator,
             ),
           ),
         ],
@@ -266,7 +333,7 @@ class PhoneTextField extends StatelessWidget {
 class SendOtpButton extends StatelessWidget {
   final bool isLoading;
   final VoidCallback? onTap;
-  const SendOtpButton({required this.isLoading, this.onTap});
+  const SendOtpButton({super.key, required this.isLoading, this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -316,7 +383,7 @@ class SendOtpButton extends StatelessWidget {
 
 class TrustBadge extends StatelessWidget {
   final String label;
-  const TrustBadge({required this.label});
+  const TrustBadge({super.key, required this.label});
 
   @override
   Widget build(BuildContext context) {

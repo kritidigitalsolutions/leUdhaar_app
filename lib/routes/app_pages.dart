@@ -1,4 +1,5 @@
 import 'package:get/get.dart';
+import 'package:leudaar_app/data/binding/home_binding.dart';
 import 'package:leudaar_app/routes/app_routes.dart';
 import 'package:leudaar_app/views/after_login/home_screen.dart';
 import 'package:leudaar_app/views/after_login/le_balance/creadit_logged_screen.dart';
@@ -20,7 +21,6 @@ import 'package:leudaar_app/views/after_login/profile/dashboard_screen.dart';
 import 'package:leudaar_app/views/after_login/profile/edit_profile_page.dart';
 import 'package:leudaar_app/views/after_login/profile/micro_debit_rec_screen.dart';
 import 'package:leudaar_app/views/after_login/profile/my_wallet/my_wallet_screen.dart';
-import 'package:leudaar_app/views/after_login/profile/policy/policy_page.dart';
 import 'package:leudaar_app/views/after_login/profile/profile_screen.dart';
 import 'package:leudaar_app/views/after_login/profile/request/accept_request_screen.dart';
 import 'package:leudaar_app/views/after_login/profile/request/confirmed_request_page.dart';
@@ -66,6 +66,7 @@ class AppPages {
       name: AppRoutes.home,
       page: () => HomeScreen(),
       transition: Transition.fadeIn,
+      binding: HomeBinding(),
     ),
 
     GetPage(

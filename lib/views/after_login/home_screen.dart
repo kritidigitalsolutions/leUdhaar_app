@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:leudaar_app/res/app_colors.dart';
+import 'package:leudaar_app/utils/service/helper_methods.dart';
 import 'package:leudaar_app/utils/textstyle.dart';
 import 'package:leudaar_app/view_model/after_login/home_controller.dart';
+import 'package:leudaar_app/view_model/after_login/profile_controller/profile_controller.dart';
 
 // ─── Home Screen ─────────────────────────────────────────────────────────────
 class HomeScreen extends StatefulWidget {
@@ -15,6 +17,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final HomeController controller = Get.put(HomeController());
+  final ProfileController ctr = Get.find();
 
   // How tall the expanded flexible space is (below toolbar)
   static const double _expandedExtra = 190.0;
@@ -47,7 +50,7 @@ class _HomeScreenState extends State<HomeScreen> {
             automaticallyImplyLeading: false,
 
             // ── Collapsed toolbar (always visible when pinned) ──────
-            title: _CollapsedBar(controller: controller),
+            title: _CollapsedBar(controller: controller, profileCtr: ctr),
             titleSpacing: 0,
 
             // ── Expanded flexible space ─────────────────────────────
@@ -168,7 +171,8 @@ class _HomeScreenState extends State<HomeScreen> {
 // Shown when fully scrolled — compact name + actions
 class _CollapsedBar extends StatelessWidget {
   final HomeController controller;
-  const _CollapsedBar({required this.controller});
+  final ProfileController profileCtr;
+  const _CollapsedBar({required this.controller, required this.profileCtr});
 
   @override
   Widget build(BuildContext context) {
@@ -179,36 +183,46 @@ class _CollapsedBar extends StatelessWidget {
           // Mini avatar
           GestureDetector(
             onTap: controller.goToProfile,
-            child: Container(
-              width: 34,
-              height: 34,
-              decoration: BoxDecoration(
-                color: AppColors.white.withOpacity(0.25),
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: AppColors.white.withOpacity(0.4),
-                  width: 1.5,
-                ),
-              ),
-              child: Center(
-                child: Text(
-                  controller.userInitials.value,
-                  style: text12(
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.white,
-                  ),
-                ),
+            child: Obx(
+              () => CircleAvatar(
+                radius: 19,
+                backgroundColor: const Color(0xFF1E2937),
+
+                backgroundImage: profileCtr.selectedImage.value != null
+                    ? FileImage(profileCtr.selectedImage.value!)
+                    : (profileCtr.user.value?.profileImage != null &&
+                          profileCtr.user.value!.profileImage!.isNotEmpty)
+                    ? NetworkImage(
+                            "http://192.168.1.17:5005${profileCtr.user.value!.profileImage!}",
+                          )
+                          as ImageProvider
+                    : null,
+
+                child:
+                    (profileCtr.selectedImage.value == null &&
+                        (profileCtr.user.value?.profileImage == null ||
+                            profileCtr.user.value!.profileImage!.isEmpty))
+                    ? Text(
+                        getInitials(profileCtr.user.value?.fullName),
+                        style: text30(
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.white,
+                        ),
+                      )
+                    : null,
               ),
             ),
           ),
           const SizedBox(width: 10),
           // Name
           Expanded(
-            child: Text(
-              controller.userName.value,
-              style: text15(
-                fontWeight: FontWeight.w700,
-                color: AppColors.white,
+            child: Obx(
+              () => Text(
+                profileCtr.user.value?.fullName ?? "No Name",
+                style: text16(
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.white,
+                ),
               ),
             ),
           ),

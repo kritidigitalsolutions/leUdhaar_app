@@ -3,6 +3,7 @@ import 'package:get/get.dart';
 import 'package:leudaar_app/res/app_colors.dart';
 import 'package:leudaar_app/routes/app_routes.dart';
 import 'package:leudaar_app/utils/custom_button.dart';
+import 'package:leudaar_app/utils/service/helper_methods.dart';
 import 'package:leudaar_app/utils/textstyle.dart';
 import 'package:leudaar_app/view_model/after_login/profile_controller/profile_controller.dart';
 import 'package:leudaar_app/views/after_login/profile/policy/policy_page.dart';
@@ -12,7 +13,7 @@ import 'package:leudaar_app/views/custom_widget/custom_widget.dart';
 class ProfileScreen extends StatelessWidget {
   ProfileScreen({super.key});
 
-  final ProfileController controller = Get.put(ProfileController());
+  final ProfileController controller = Get.find();
 
   @override
   Widget build(BuildContext context) {
@@ -43,15 +44,35 @@ class ProfileScreen extends StatelessWidget {
                             radius: 48,
                             backgroundColor: const Color(0xFF1E2937),
 
-                            // ✅ show selected image
                             backgroundImage:
                                 controller.selectedImage.value != null
                                 ? FileImage(controller.selectedImage.value!)
+                                : (controller.user.value?.profileImage !=
+                                          null &&
+                                      controller
+                                          .user
+                                          .value!
+                                          .profileImage!
+                                          .isNotEmpty)
+                                ? NetworkImage(
+                                        "http://192.168.1.17:5005${controller.user.value!.profileImage!}",
+                                      )
+                                      as ImageProvider
                                 : null,
 
-                            child: controller.selectedImage.value == null
+                            child:
+                                (controller.selectedImage.value == null &&
+                                    (controller.user.value?.profileImage ==
+                                            null ||
+                                        controller
+                                            .user
+                                            .value!
+                                            .profileImage!
+                                            .isEmpty))
                                 ? Text(
-                                    "RS",
+                                    getInitials(
+                                      controller.user.value?.fullName,
+                                    ),
                                     style: text30(
                                       fontWeight: FontWeight.bold,
                                       color: AppColors.white,
@@ -59,7 +80,6 @@ class ProfileScreen extends StatelessWidget {
                                   )
                                 : null,
                           ),
-
                           // 📷 Camera button
                           GestureDetector(
                             onTap: () {
@@ -140,21 +160,24 @@ class ProfileScreen extends StatelessWidget {
 
                     const SizedBox(height: 16),
 
-                    Text(
-                      "Rahul Sharma",
-                      style: text16(
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.white,
+                    Obx(
+                      () => Text(
+                        controller.user.value?.fullName ?? "No Name",
+                        style: text16(
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.white,
+                        ),
                       ),
                     ),
 
                     const SizedBox(height: 6),
 
-                    Text(
-                      "+91 98765 43210 • rahulgupi",
-                      style: text13(color: AppColors.white70),
+                    Obx(
+                      () => Text(
+                        "+91 ${controller.user.value?.phone ?? ""}",
+                        style: text13(color: AppColors.white70),
+                      ),
                     ),
-
                     const SizedBox(height: 15),
 
                     OutlinedButton(

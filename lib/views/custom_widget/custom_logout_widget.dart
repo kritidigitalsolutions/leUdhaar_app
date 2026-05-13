@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:get/get.dart';
 import 'package:leudaar_app/res/app_colors.dart';
+import 'package:leudaar_app/routes/app_routes.dart';
 import 'package:leudaar_app/utils/custom_button.dart';
+import 'package:leudaar_app/utils/service/local_storage/auth_storage.dart';
 import 'package:leudaar_app/utils/textstyle.dart';
 
 /// Call this function to show the logout bottom sheet.
@@ -146,8 +149,9 @@ class _LogoutBottomSheet extends StatelessWidget {
                   color: AppColors.error,
                   height: 50,
                   title: 'Yes, sign out',
-                  onTap: () {
-                    Navigator.pop(context);
+                  onTap: () async {
+                    await AuthStorage.clear();
+                    Get.offAllNamed(AppRoutes.registerPage);
                   },
                 ),
               ),

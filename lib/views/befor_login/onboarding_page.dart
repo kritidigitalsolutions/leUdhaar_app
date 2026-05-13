@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
+import 'package:leudaar_app/data/api_response.dart';
+import 'package:leudaar_app/models/response_model/auth_models/onborading_res_model.dart';
 import 'package:leudaar_app/res/app_colors.dart';
 import 'package:leudaar_app/routes/app_routes.dart';
 import 'package:leudaar_app/utils/textstyle.dart';
 import 'package:leudaar_app/view_model/before_login/auth_controller.dart';
+import 'package:leudaar_app/views/custom_widget/custom_error_widget.dart';
 
 class OnboardingScreen extends StatelessWidget {
   const OnboardingScreen({super.key});
@@ -13,43 +16,34 @@ class OnboardingScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = Get.put(OnboardingController());
 
-    final List<Map<String, dynamic>> pages = [
-      {
-        "icon": Icons.people_rounded,
-        "tag": "Friends & Family",
-        "title": "Borrow from friends\n& family",
-        "subtitle":
-            "Send a request, get it recorded instantly.\nNo awkward follow-ups ever again.",
-        "badge": "100% private & secure",
-      },
-      {
-        "icon": Icons.qr_code_scanner_rounded,
-        "tag": "Shop Credit",
-        "title": "Shop credit\nmade simple",
-        "subtitle":
-            "Scan the store QR, log the amount.\nAuto-repay on due date.",
-        "badge": "Works at 10,000+ stores",
-      },
-      {
-        "icon": Icons.verified_user_rounded,
-        "tag": "Legal Protection",
-        "title": "Every deal,\nlegally protected",
-        "subtitle":
-            "Digital agreements you can trust.\nBuilt for India's credit economy.",
-        "badge": "RBI compliant",
-      },
-    ];
-
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.dark,
       child: Scaffold(
         backgroundColor: AppColors.background,
         body: SafeArea(
-          child: Column(
-            children: [
-              // ── Skip button ────────────────────────────────
-              Obx(
-                () => Align(
+          child: // Inside OnboardingScreen > build > Obx
+          Obx(() {
+            final response = controller.onboardingResponse.value;
+
+            if (response.status == Status.loading) {
+              return const Center(child: CircularProgressIndicator());
+            }
+
+            if (response.status == Status.error) {
+              return CustomErrorWidget(
+                title: "Failed to load onboarding",
+                message:
+                    response.message ?? "Please check your internet connection",
+                onRetry: controller.getOnboardingData,
+              );
+            }
+
+            final pages = response.data!.data; // List<OnboradingData>
+
+            return Column(
+              children: [
+                // Skip button
+                Align(
                   alignment: Alignment.centerRight,
                   child: AnimatedOpacity(
                     duration: const Duration(milliseconds: 200),
@@ -59,39 +53,36 @@ class OnboardingScreen extends StatelessWidget {
                     child: GestureDetector(
                       onTap: () => Get.offAllNamed(AppRoutes.registerPage),
                       child: Padding(
-                        padding: const EdgeInsets.fromLTRB(0, 16, 24, 0),
+                        padding: EdgeInsets.fromLTRB(0, 16, 24, 0),
                         child: Text(
                           "Skip",
                           style: text13(
                             fontWeight: FontWeight.w500,
-                          ).copyWith(color: AppColors.grey500),
+                            color: AppColors.grey500,
+                          ),
                         ),
                       ),
                     ),
                   ),
                 ),
-              ),
 
-              // ── Page slides ────────────────────────────────
-              Expanded(
-                child: PageView.builder(
-                  controller: controller.pageController,
-                  onPageChanged: controller.onPageChanged,
-                  itemCount: pages.length,
-                  itemBuilder: (context, index) {
-                    final data = pages[index];
-                    return _OnboardingPage(data: data);
-                  },
+                // PageView
+                Expanded(
+                  child: PageView.builder(
+                    controller: controller.pageController,
+                    onPageChanged: controller.onPageChanged,
+                    itemCount: pages.length,
+                    itemBuilder: (context, index) {
+                      return _OnboardingPage(data: pages[index]);
+                    },
+                  ),
                 ),
-              ),
 
-              // ── Dots + CTA ─────────────────────────────────
-              Obx(
-                () => Padding(
+                // Dots + Button
+                Padding(
                   padding: const EdgeInsets.fromLTRB(24, 0, 24, 36),
                   child: Column(
                     children: [
-                      // Dot indicators
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: List.generate(
@@ -104,17 +95,14 @@ class OnboardingScreen extends StatelessWidget {
                             height: 7,
                             decoration: BoxDecoration(
                               color: controller.currentPage.value == i
-                                  ? const Color(0xFF1A1A1A)
-                                  : const Color(0xFFD3D1C7),
+                                  ? AppColors.primary
+                                  : AppColors.grey400,
                               borderRadius: BorderRadius.circular(10),
                             ),
                           ),
                         ),
                       ),
-
                       const SizedBox(height: 24),
-
-                      // Main button
                       _OnboardingButton(
                         label: controller.currentPage.value == pages.length - 1
                             ? "Get Started"
@@ -126,9 +114,9 @@ class OnboardingScreen extends StatelessWidget {
                     ],
                   ),
                 ),
-              ),
-            ],
-          ),
+              ],
+            );
+          }),
         ),
       ),
     );
@@ -138,8 +126,24 @@ class OnboardingScreen extends StatelessWidget {
 // ── Single slide ──────────────────────────────────────────────────────────────
 
 class _OnboardingPage extends StatelessWidget {
-  final Map<String, dynamic> data;
+  final OnboradingData data;
   const _OnboardingPage({required this.data});
+
+  IconData _getIcon(String? iconKey) {
+    switch (iconKey?.toLowerCase()) {
+      case 'friends':
+      case 'people':
+        return Icons.people_rounded;
+      case 'qr':
+      case 'shop':
+        return Icons.qr_code_scanner_rounded;
+      case 'legal':
+      case 'verified':
+        return Icons.verified_user_rounded;
+      default:
+        return Icons.star_rounded; // fallback
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -158,7 +162,7 @@ class _OnboardingPage extends StatelessWidget {
             ),
             alignment: Alignment.center,
             child: Icon(
-              data['icon'] as IconData,
+              _getIcon(data.iconKey),
               size: 48,
               color: AppColors.white,
             ),
@@ -166,9 +170,9 @@ class _OnboardingPage extends StatelessWidget {
 
           const SizedBox(height: 32),
 
-          // Micro-tag
+          // Micro-tag / Label
           Text(
-            (data['tag'] as String).toUpperCase(),
+            (data.label ?? '').toUpperCase(),
             style: text11(
               fontWeight: FontWeight.w600,
               color: AppColors.grey500,
@@ -179,7 +183,7 @@ class _OnboardingPage extends StatelessWidget {
 
           // Title
           Text(
-            data['title'] as String,
+            data.title ?? '',
             textAlign: TextAlign.center,
             style: text26(
               fontWeight: FontWeight.w700,
@@ -189,9 +193,9 @@ class _OnboardingPage extends StatelessWidget {
 
           const SizedBox(height: 16),
 
-          // Subtitle
+          // Subtitle / Description
           Text(
-            data['subtitle'] as String,
+            data.description ?? '',
             textAlign: TextAlign.center,
             style: text14(color: AppColors.textSecondary).copyWith(height: 1.6),
           ),
@@ -199,34 +203,35 @@ class _OnboardingPage extends StatelessWidget {
           const SizedBox(height: 24),
 
           // Feature badge
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-            decoration: BoxDecoration(
-              color: const Color(0xFFEEEAE3),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 6,
-                  height: 6,
-                  decoration: const BoxDecoration(
-                    color: AppColors.success,
-                    shape: BoxShape.circle,
+          if (data.badgeText != null)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppColors.grey200,
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 6,
+                    height: 6,
+                    decoration: const BoxDecoration(
+                      color: AppColors.success,
+                      shape: BoxShape.circle,
+                    ),
                   ),
-                ),
-                const SizedBox(width: 7),
-                Text(
-                  data['badge'] as String,
-                  style: text11(
-                    fontWeight: FontWeight.w500,
-                    color: AppColors.textSecondary,
+                  const SizedBox(width: 7),
+                  Text(
+                    data.badgeText!,
+                    style: text11(
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.textSecondary,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
         ],
       ),
     );
@@ -269,7 +274,6 @@ class _OnboardingButton extends StatelessWidget {
                 key: ValueKey(label),
                 style: text16(
                   color: AppColors.white,
-
                   fontWeight: FontWeight.w600,
                 ).copyWith(letterSpacing: 0.3),
               ),
