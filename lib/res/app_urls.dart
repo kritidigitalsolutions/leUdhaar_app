@@ -24,4 +24,11 @@ class AppUrls {
   static const String privacyPolicy = "$baseUrl/global/privacy-policy";
   static const String helpSupport = "$baseUrl/global/help-support";
   static const String aboutUs = "$baseUrl/global/about-app";
+
+  //-----------------------------------------------------------
+  // profile edit
+  //-----------------------------------------------
+
+  static const String contactChecker = '$baseUrl/user/contacts';
+  static const String requestMoney = '$baseUrl/user/money-requests';
 }

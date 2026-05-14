@@ -1,5 +1,5 @@
 import 'package:get/get.dart';
-import 'package:leudaar_app/data/binding/home_binding.dart';
+import 'package:leudaar_app/binding/home_binding.dart';
 import 'package:leudaar_app/routes/app_routes.dart';
 import 'package:leudaar_app/views/after_login/home_screen.dart';
 import 'package:leudaar_app/views/after_login/le_balance/creadit_logged_screen.dart';

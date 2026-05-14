@@ -24,11 +24,13 @@ class ProfileController extends GetxController {
 
   void loadUser() {
     user.value = AuthStorage.getUser();
+    print(AuthStorage.getToken());
     print("USER DATA: ${user.value?.fullName}");
   }
 
   void refreshUser() {
     user.value = AuthStorage.getUser();
+
     user.refresh(); // important
   }
 

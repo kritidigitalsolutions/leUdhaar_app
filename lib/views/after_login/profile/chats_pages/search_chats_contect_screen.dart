@@ -4,7 +4,7 @@ import 'package:leudaar_app/res/app_colors.dart';
 import 'package:leudaar_app/routes/app_routes.dart';
 import 'package:leudaar_app/utils/textstyle.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
-import 'package:leudaar_app/view_model/after_login/chat_controller/chat_controller.dart';
+import 'package:leudaar_app/view_model/after_login/leUdhaar_controller/chat_controller.dart';
 import 'package:leudaar_app/views/custom_widget/custom_widget.dart';
 
 class ChatSearchScreen extends StatelessWidget {
@@ -81,17 +81,17 @@ class ChatSearchScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 12),
 
-                    if (controller.filteredContacts.isEmpty)
-                      const Center(
-                        child: Padding(
-                          padding: EdgeInsets.all(30),
-                          child: Text("No contacts found"),
-                        ),
-                      )
-                    else
-                      ...controller.filteredContacts.map(
-                        (contact) => _contactItem(contact),
-                      ),
+                    // if (controller.filteredContacts.isEmpty)
+                    //   const Center(
+                    //     child: Padding(
+                    //       padding: EdgeInsets.all(30),
+                    //       child: Text("No contacts found"),
+                    //     ),
+                    //   )
+                    // else
+                    //   ...controller.filteredContacts.map(
+                    //     (contact) => _contactItem(contact),
+                    //   ),
                   ],
                 ),
               ),

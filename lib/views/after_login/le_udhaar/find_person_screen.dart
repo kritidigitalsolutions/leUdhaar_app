@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:get/get.dart';
+import 'package:leudaar_app/models/response_model/leudhaar_res/contact_checked_res_model.dart';
 import 'package:leudaar_app/res/app_colors.dart';
 import 'package:leudaar_app/routes/app_routes.dart';
 import 'package:leudaar_app/utils/textstyle.dart';
+import 'package:leudaar_app/view_model/after_login/leUdhaar_controller/chat_controller.dart';
 import 'package:leudaar_app/views/custom_widget/custom_widget.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -14,43 +17,14 @@ class FindPersonScreen extends StatefulWidget {
 }
 
 class _FindPersonScreenState extends State<FindPersonScreen> {
-  final TextEditingController _searchController = TextEditingController(
-    text: 'Rahul',
-  );
+  final ChatSearchController controller = Get.put(ChatSearchController());
 
-  // Search results (on Le'Udhaar)
-  final List<Map<String, dynamic>> _searchResults = [
-    {
-      'initials': 'RV',
-      'name': 'Rahul Verma',
-      'number': '+91 98765 43210',
-      'verified': true,
-    },
-    {
-      'initials': 'RK',
-      'name': 'Rahul Kumar',
-      'number': '+91 81234 56789',
-      'verified': false,
-    },
-  ];
-
-  // Contacts who are on the app
-  final List<Map<String, dynamic>> _contactsOnApp = [
-    {'initials': 'AS', 'name': 'Aman Sharma', 'number': '+91 99887 76655'},
-    {'initials': 'PK', 'name': 'Priya Kumari', 'number': '+91 70123 45678'},
-  ];
-
-  // Contacts who are NOT on the app
-  final List<Map<String, dynamic>> _contactsNotOnApp = [
-    {'initials': 'RK', 'name': 'Rohit Kumar', 'number': '+91 88997 55443'},
-    {'initials': 'NS', 'name': 'Neha Singh', 'number': '+91 66554 33221'},
-    {'initials': 'VK', 'name': 'Vikas Kumar', 'number': '+91 55443 22110'},
-  ];
-
-  @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
+  String _initials(String name) {
+    final parts = name.trim().split(' ');
+    if (parts.length >= 2) {
+      return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
+    }
+    return name.isNotEmpty ? name[0].toUpperCase() : '?';
   }
 
   @override
@@ -60,7 +34,7 @@ class _FindPersonScreenState extends State<FindPersonScreen> {
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header
+          // ── Header ───────────────────────────────────────────────────
           Container(
             color: AppColors.primary,
             padding: const EdgeInsets.only(
@@ -94,90 +68,208 @@ class _FindPersonScreenState extends State<FindPersonScreen> {
           ),
 
           Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+            child: Obx(() {
+              // ── Full screen loading ─────────────────────────────────
+              if (controller.isLoading.value) {
+                return _fullLoadingState();
+              }
+
+              return Column(
                 children: [
-                  // Search Bar
-                  TextField(
-                    controller: _searchController,
-                    style: text14(color: AppColors.textPrimary),
-                    decoration: InputDecoration(
-                      hintText: 'Search name or number',
-                      hintStyle: text14(color: AppColors.hintText),
-                      filled: true,
-                      fillColor: AppColors.white,
-                      suffixIcon: const Icon(
-                        Icons.search_rounded,
-                        color: AppColors.textSecondary,
-                      ),
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 14,
-                      ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(color: AppColors.grey300),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(color: AppColors.grey300),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(
-                          color: AppColors.button,
-                          width: 1.5,
+                  // ── Search Bar ────────────────────────────────────────
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                    child: TextField(
+                      controller: controller.searchController,
+                      style: text14(color: AppColors.textPrimary),
+                      decoration: InputDecoration(
+                        hintText: 'Search name or number',
+                        hintStyle: text14(color: AppColors.hintText),
+                        filled: true,
+                        fillColor: AppColors.white,
+                        suffixIcon: controller.searchController.text.isNotEmpty
+                            ? GestureDetector(
+                                onTap: controller.searchController.clear,
+                                child: const Icon(
+                                  Icons.close_rounded,
+                                  color: AppColors.textSecondary,
+                                  size: 20,
+                                ),
+                              )
+                            : const Icon(
+                                Icons.search_rounded,
+                                color: AppColors.textSecondary,
+                              ),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 14,
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(
+                            color: AppColors.grey300,
+                          ),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(
+                            color: AppColors.grey300,
+                          ),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(
+                            color: AppColors.button,
+                            width: 1.5,
+                          ),
                         ),
                       ),
                     ),
-                    onChanged: (_) => setState(() {}),
                   ),
-                  const SizedBox(height: 24),
 
-                  // Search Results
-                  Text(
-                    'Search results',
-                    style: text12(color: AppColors.textSecondary),
-                  ),
-                  const SizedBox(height: 10),
-                  ..._searchResults.map((r) => _searchResultTile(r)),
-                  const SizedBox(height: 24),
+                  // ── API checking banner ───────────────────────────────
+                  if (controller.isChecking.value)
+                    Container(
+                      margin: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withOpacity(0.07),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Row(
+                        children: [
+                          SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: AppColors.primary,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Text(
+                            'Checking who\'s on Le\'Udhaar...',
+                            style: text12(color: AppColors.primary),
+                          ),
+                        ],
+                      ),
+                    ),
 
-                  // Contacts On App
-                  const Divider(),
                   const SizedBox(height: 8),
-                  Text(
-                    'From your contacts (On App)',
-                    style: text14(fontWeight: FontWeight.w600),
-                  ),
-                  const SizedBox(height: 12),
-                  ..._contactsOnApp.map((c) => _contactOnAppTile(c)),
 
-                  const SizedBox(height: 24),
+                  // ── Lists ─────────────────────────────────────────────
+                  Expanded(
+                    child: ListView(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 30),
+                      children: [
+                        // Recent searches chips
+                        if (controller.searchController.text.isEmpty &&
+                            controller.recentSearches.isNotEmpty) ...[
+                          _sectionHeader(
+                            label: 'Recent Searches',
+                            icon: Icons.history_rounded,
+                          ),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: controller.recentSearches
+                                .map(
+                                  (name) => GestureDetector(
+                                    onTap: () =>
+                                        controller.searchController.text = name,
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 14,
+                                        vertical: 7,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: AppColors.white,
+                                        borderRadius: BorderRadius.circular(20),
+                                        border: Border.all(
+                                          color: AppColors.grey200,
+                                        ),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const Icon(
+                                            Icons.history_rounded,
+                                            size: 14,
+                                            color: AppColors.textSecondary,
+                                          ),
+                                          const SizedBox(width: 5),
+                                          Text(
+                                            name,
+                                            style: text13(
+                                              color: AppColors.textPrimary,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                )
+                                .toList(),
+                          ),
+                          const SizedBox(height: 20),
+                        ],
 
-                  // Contacts Not On App
-                  const Divider(),
-                  const SizedBox(height: 8),
-                  Text(
-                    'From your contacts (Not on App)',
-                    style: text14(fontWeight: FontWeight.w600),
+                        // ── On Le'Udhaar ──────────────────────────────
+                        _sectionHeader(
+                          label:
+                              'On Le\'Udhaar  •  ${controller.filteredRegistered.length}',
+                          icon: Icons.verified_rounded,
+                          iconColor: const Color(0xFF27AE60),
+                        ),
+                        const SizedBox(height: 10),
+                        if (controller.filteredRegistered.isEmpty)
+                          _emptyChip('No registered contacts found')
+                        else
+                          ...controller.filteredRegistered.map(
+                            (c) => _registeredTile(c),
+                          ),
+
+                        const SizedBox(height: 20),
+
+                        // ── Invite to Le'Udhaar ───────────────────────
+                        _sectionHeader(
+                          label:
+                              'Invite to Le\'Udhaar  •  ${controller.filteredUnregistered.length}',
+                          icon: Icons.person_add_alt_1_rounded,
+                          iconColor: AppColors.textSecondary,
+                        ),
+                        const SizedBox(height: 10),
+                        if (controller.filteredUnregistered.isEmpty)
+                          _emptyChip('No other contacts')
+                        else
+                          ...controller.filteredUnregistered.map(
+                            (c) => _unregisteredTile(c),
+                          ),
+                      ],
+                    ),
                   ),
-                  const SizedBox(height: 12),
-                  ..._contactsNotOnApp.map((c) => _contactNotOnAppTile(c)),
                 ],
-              ),
-            ),
+              );
+            }),
           ),
         ],
       ),
     );
   }
 
-  // Search Result Tile
-  Widget _searchResultTile(Map<String, dynamic> result) {
-    final bool verified = result['verified'] as bool;
+  // ── Registered tile (on Le'Udhaar) ───────────────────────────────────
+  Widget _registeredTile(LeUdhaarContact lc) {
+    final Contact? local = controller.getLocalContact(lc);
+    final String name =
+        lc.user?.fullName ?? local?.displayName ?? lc.inputPhone ?? '';
+    final String phone = lc.user?.phone ?? lc.normalizedPhone ?? '';
+    final String initials = _initials(name);
+    final bool hasPhoto = local?.photo != null;
+    final bool canRequest = lc.actions?.canSendMoneyRequest == true;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -186,141 +278,135 @@ class _FindPersonScreenState extends State<FindPersonScreen> {
         color: AppColors.white,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: verified ? AppColors.button : AppColors.grey200,
-          width: verified ? 1.5 : 1,
+          color: AppColors.button.withOpacity(0.35),
+          width: 1.4,
         ),
       ),
       child: Row(
         children: [
-          CircleAvatar(
-            radius: 22,
-            backgroundColor: AppColors.primary,
-            child: Text(
-              result['initials'],
-              style: text13(
-                fontWeight: FontWeight.bold,
-                color: AppColors.white,
+          // Avatar
+          Stack(
+            children: [
+              CircleAvatar(
+                radius: 22,
+                backgroundColor: AppColors.primary,
+                backgroundImage: hasPhoto
+                    ? MemoryImage(local!.photo!.thumbnail!)
+                    : null,
+                child: hasPhoto
+                    ? null
+                    : Text(
+                        initials,
+                        style: text13(
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.white,
+                        ),
+                      ),
               ),
-            ),
+              Positioned(
+                bottom: 0,
+                right: 0,
+                child: Container(
+                  width: 13,
+                  height: 13,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF27AE60),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: AppColors.white, width: 1.5),
+                  ),
+                ),
+              ),
+            ],
           ),
           const SizedBox(width: 12),
+
+          // Name & phone
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  result['name'],
+                  name,
                   style: text14(
                     fontWeight: FontWeight.w600,
                     color: AppColors.textPrimary,
                   ),
                 ),
                 const SizedBox(height: 2),
-                Text(
-                  result['number'],
-                  style: text12(color: AppColors.textSecondary),
+                Row(
+                  children: [
+                    Text(phone, style: text12(color: AppColors.textSecondary)),
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF27AE60).withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        'Le\'Udhaar',
+                        style: text12(
+                          color: const Color(0xFF27AE60),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
           ),
-          GestureDetector(
-            onTap: () {
-              if (verified) {
-                Get.toNamed(AppRoutes.requestMoneyScreen, arguments: result);
-              }
-            },
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
-              decoration: BoxDecoration(
-                color: verified ? AppColors.button : Colors.transparent,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                  color: verified ? AppColors.button : AppColors.grey300,
-                ),
-              ),
-              child: Text(
-                verified ? 'Request' : 'Invite',
-                style: text12(
-                  fontWeight: FontWeight.w600,
-                  color: verified ? AppColors.white : AppColors.textSecondary,
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 
-  // Contact On App Tile
-  Widget _contactOnAppTile(Map<String, dynamic> contact) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: AppColors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.button.withOpacity(0.3)),
-      ),
-      child: Row(
-        children: [
-          CircleAvatar(
-            radius: 22,
-            backgroundColor: AppColors.primary,
-            child: Text(
-              contact['initials'],
-              style: text13(
-                fontWeight: FontWeight.bold,
-                color: AppColors.white,
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  contact['name'],
-                  style: text14(
+          // Request button
+          if (canRequest)
+            GestureDetector(
+              onTap: () {
+                controller.addToRecentSearch(name);
+                Get.toNamed(
+                  AppRoutes.requestMoneyScreen,
+                  arguments: {
+                    'initials': initials,
+                    'name': name,
+                    'number': phone,
+                    'userId': lc.user?.id,
+                  },
+                );
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 7,
+                ),
+                decoration: BoxDecoration(
+                  color: AppColors.button,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  'Request',
+                  style: text12(
                     fontWeight: FontWeight.w600,
-                    color: AppColors.textPrimary,
+                    color: AppColors.white,
                   ),
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  contact['number'],
-                  style: text12(color: AppColors.textSecondary),
-                ),
-              ],
-            ),
-          ),
-          GestureDetector(
-            onTap: () =>
-                Get.toNamed(AppRoutes.requestMoneyScreen, arguments: contact),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 7),
-              decoration: BoxDecoration(
-                color: AppColors.button,
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Text(
-                'Request',
-                style: text12(
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.white,
-                ),
               ),
             ),
-          ),
         ],
       ),
     );
   }
 
-  // Contact NOT On App Tile → Share Referral Link
-  // Contact NOT On App Tile
-  Widget _contactNotOnAppTile(Map<String, dynamic> contact) {
+  // ── Unregistered tile (not on Le'Udhaar) ─────────────────────────────
+  Widget _unregisteredTile(LeUdhaarContact lc) {
+    final Contact? local = controller.getLocalContact(lc);
+    final String name = local?.displayName ?? lc.inputPhone ?? '';
+    final String phone = lc.normalizedPhone ?? lc.inputPhone ?? '';
+    final String initials = _initials(name);
+    final bool hasPhoto = local?.photo != null;
+    final bool canWhatsapp = lc.actions?.canSendWhatsapp == true;
+
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -331,60 +417,71 @@ class _FindPersonScreenState extends State<FindPersonScreen> {
       ),
       child: Row(
         children: [
+          // Avatar
           CircleAvatar(
             radius: 22,
-            backgroundColor: AppColors.primary,
-            child: Text(
-              contact['initials'],
-              style: text13(
-                fontWeight: FontWeight.bold,
-                color: AppColors.white,
-              ),
-            ),
+            backgroundColor: AppColors.grey300,
+            backgroundImage: hasPhoto
+                ? MemoryImage(local!.photo!.thumbnail!)
+                : null,
+            child: hasPhoto
+                ? null
+                : Text(
+                    initials,
+                    style: text13(
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.white,
+                    ),
+                  ),
           ),
           const SizedBox(width: 12),
+
+          // Name & phone
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  contact['name'],
+                  name,
                   style: text14(
                     fontWeight: FontWeight.w600,
                     color: AppColors.textPrimary,
                   ),
                 ),
                 const SizedBox(height: 2),
-                Text(
-                  contact['number'],
-                  style: text12(color: AppColors.textSecondary),
-                ),
+                Text(phone, style: text12(color: AppColors.textSecondary)),
               ],
             ),
           ),
-          // WhatsApp Button
-          GestureDetector(
-            onTap: () => _shareViaWhatsApp(contact),
-            child: Container(
-              margin: const EdgeInsets.only(right: 8),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-              decoration: BoxDecoration(
-                color: const Color(0xFF25D366), // WhatsApp Green
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: const Text(
-                'WhatsApp',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.white,
+
+          // WhatsApp invite
+          if (canWhatsapp) ...[
+            GestureDetector(
+              onTap: () => _shareViaWhatsApp(name, lc.actions?.inviteLink),
+              child: Container(
+                margin: const EdgeInsets.only(right: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 7,
+                ),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF25D366),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  'WhatsApp',
+                  style: text12(
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.white,
+                  ),
                 ),
               ),
             ),
-          ),
-          // Other Share Button
+          ],
+
+          // General share / Invite
           GestureDetector(
-            onTap: () => _shareReferralLink(contact),
+            onTap: () => _shareInvite(name, lc.actions?.inviteLink),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
               decoration: BoxDecoration(
@@ -392,7 +489,7 @@ class _FindPersonScreenState extends State<FindPersonScreen> {
                 borderRadius: BorderRadius.circular(20),
               ),
               child: Text(
-                'Share',
+                'Invite',
                 style: text12(
                   fontWeight: FontWeight.w600,
                   color: AppColors.white,
@@ -405,41 +502,67 @@ class _FindPersonScreenState extends State<FindPersonScreen> {
     );
   }
 
-  // ==================== Share via WhatsApp ====================
-  void _shareViaWhatsApp(Map<String, dynamic> contact) {
-    String name = contact['name'] ?? 'Friend';
-
-    String message =
-        "Hey $name 👋\n\n"
-        "I’ve invited you to join Le’Udhaar — a stress-free & automated platform for lending, borrowing, and repayments.\n\n"
-        "Join now using my referral link:\n"
-        "https://leudaar.app/refer?user=your_user_id";
-
-    // WhatsApp URL Scheme
-    final whatsappUrl = Uri.parse(
-      "https://wa.me/?text=${Uri.encodeComponent(message)}",
-    );
-
-    // You can launch this URL using url_launcher package
-    // For now, we'll use general share with prefilled text
-    SharePlus.instance.share(
-      ShareParams(text: message, subject: "Join me on Le’Udhaar"),
+  // ── Helpers ───────────────────────────────────────────────────────────
+  Widget _fullLoadingState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const CircularProgressIndicator(),
+          const SizedBox(height: 16),
+          Text(
+            'Fetching your contacts...',
+            style: text14(color: AppColors.textSecondary),
+          ),
+        ],
+      ),
     );
   }
 
-  // ==================== General Share (Other Apps) ====================
-  void _shareReferralLink(Map<String, dynamic> contact) {
-    String name = contact['name'] ?? 'Friend';
+  Widget _sectionHeader({
+    required String label,
+    required IconData icon,
+    Color? iconColor,
+  }) {
+    return Row(
+      children: [
+        Icon(icon, size: 16, color: iconColor ?? AppColors.primary),
+        const SizedBox(width: 6),
+        Text(
+          label,
+          style: text13(
+            fontWeight: FontWeight.w700,
+            color: AppColors.textPrimary,
+          ),
+        ),
+      ],
+    );
+  }
 
-    String message =
-        "Hey $name 👋\n\n"
-        "I’ve invited you to join Le’Udhaar — a stress-free & automated platform for lending, borrowing, and repayments.\n\n"
-        "Join now using my referral link:\n"
-        "https://leudaar.app/refer?user=your_user_id\n\n"
-        "Looking forward to seeing you there!";
+  Widget _emptyChip(String msg) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Text(msg, style: text13(color: AppColors.textSecondary)),
+    );
+  }
 
+  void _shareViaWhatsApp(String name, dynamic inviteLink) {
+    final link =
+        inviteLink?.toString() ?? 'https://leudaar.app/refer?user=your_user_id';
+    final message =
+        "Hey $name 👋\n\nJoin me on Le'Udhaar — stress-free lending & borrowing!\n\n$link";
     SharePlus.instance.share(
-      ShareParams(text: message, subject: "Join me on Le’Udhaar"),
+      ShareParams(text: message, subject: "Join me on Le'Udhaar"),
+    );
+  }
+
+  void _shareInvite(String name, dynamic inviteLink) {
+    final link =
+        inviteLink?.toString() ?? 'https://leudaar.app/refer?user=your_user_id';
+    final message =
+        "Hey $name 👋\n\nI've invited you to join Le'Udhaar — a stress-free & automated platform for lending, borrowing, and repayments.\n\nJoin now:\n$link";
+    SharePlus.instance.share(
+      ShareParams(text: message, subject: "Join me on Le'Udhaar"),
     );
   }
 }

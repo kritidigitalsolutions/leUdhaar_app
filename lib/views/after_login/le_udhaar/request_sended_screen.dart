@@ -2,17 +2,18 @@ import 'dart:math' show cos, sin, pi;
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:leudaar_app/res/app_colors.dart';
+import 'package:leudaar_app/routes/app_routes.dart';
 import 'package:leudaar_app/utils/custom_button.dart';
 import 'package:leudaar_app/utils/textstyle.dart';
-import 'package:leudaar_app/view_model/after_login/leBalance_controller/leBalance_controller.dart';
 
 class RequestSendedScreen extends StatelessWidget {
-  RequestSendedScreen({super.key});
-
-  final CreditLoggedController controller = Get.put(CreditLoggedController());
+  const RequestSendedScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final Map<String, dynamic> data =
+        Get.arguments as Map<String, dynamic>? ?? {};
+
     return Scaffold(
       backgroundColor: AppColors.white,
       body: SafeArea(
@@ -22,12 +23,11 @@ class RequestSendedScreen extends StatelessWidget {
             children: [
               const Spacer(flex: 2),
 
-              // ── Animated Success Icon ──────────────────────────────
+              // Animated Success Icon
               const _AnimatedSuccessIcon(),
-
               const SizedBox(height: 28),
 
-              // ── Title ──────────────────────────────────────────────
+              // Title
               Text(
                 'Request sent!',
                 style: text26(
@@ -38,9 +38,9 @@ class RequestSendedScreen extends StatelessWidget {
 
               const SizedBox(height: 10),
 
-              // ── Subtitle ───────────────────────────────────────────
+              // Subtitle
               Text(
-                "Rahul Verma will be notified.You'll get an update once he responds.",
+                "${data['sentTo'] ?? 'User'} will be notified.\nYou'll get an update once they respond.",
                 textAlign: TextAlign.center,
                 style: text14(
                   color: AppColors.textSecondary,
@@ -49,7 +49,7 @@ class RequestSendedScreen extends StatelessWidget {
 
               const SizedBox(height: 28),
 
-              // ── Detail Card ────────────────────────────────────────
+              // Detail Card
               Container(
                 width: double.infinity,
                 decoration: BoxDecoration(
@@ -59,26 +59,29 @@ class RequestSendedScreen extends StatelessWidget {
                 child: Column(
                   children: [
                     _DetailRow(
-                      label: 'Shop',
-                      value: controller.shopName,
+                      label: 'Sent to',
+                      value: data['sentTo'],
                       isFirst: true,
                     ),
                     _DetailRow(
                       label: 'Amount',
                       valueWidget: Text(
-                        '₹${controller.amount}',
+                        '₹${data['amount']}',
                         style: text15(
                           fontWeight: FontWeight.w700,
                           color: AppColors.error,
                         ),
                       ),
                     ),
-                    _DetailRow(label: 'Due date', value: controller.dueDate),
-                    _DetailRow(label: 'Repayment', value: controller.repayment),
+                    _DetailRow(label: 'Due date', value: data['returnBy']),
+                    _DetailRow(
+                      label: 'Repayment',
+                      value: data['repaymentMode'],
+                    ),
                     _DetailRow(
                       label: 'Status',
                       valueWidget: Container(
-                        padding: EdgeInsets.symmetric(
+                        padding: const EdgeInsets.symmetric(
                           horizontal: 10,
                           vertical: 5,
                         ),
@@ -103,8 +106,13 @@ class RequestSendedScreen extends StatelessWidget {
 
               const Spacer(flex: 2),
 
-              // ── Dashboard Button ───────────────────────────────────
-              AppButton(title: "Back to Home", onTap: controller.goToDashboard),
+              // Button
+              AppButton(
+                title: "Back to Home",
+                onTap: () => Get.offAllNamed(
+                  AppRoutes.home,
+                ), // Change if your home route is different
+              ),
 
               const SizedBox(height: 24),
             ],

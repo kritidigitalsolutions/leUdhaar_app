@@ -4,7 +4,7 @@ import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import 'package:leudaar_app/res/app_colors.dart';
 import 'package:leudaar_app/utils/textstyle.dart';
-import 'package:leudaar_app/view_model/after_login/chat_controller/chat_controller.dart';
+import 'package:leudaar_app/view_model/after_login/leUdhaar_controller/chat_controller.dart';
 
 class ChatDetailScreen extends StatelessWidget {
   ChatDetailScreen({super.key});

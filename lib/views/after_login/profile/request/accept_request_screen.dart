@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:leudaar_app/models/response_model/leudhaar_res/request_money_res_model.dart';
 import 'package:leudaar_app/res/app_colors.dart';
 import 'package:leudaar_app/routes/app_routes.dart';
 import 'package:leudaar_app/utils/custom_button.dart';
@@ -14,8 +15,51 @@ class AcceptRequestScreen extends StatefulWidget {
 }
 
 class _AcceptRequestScreenState extends State<AcceptRequestScreen> {
+  // Datum passed from RequestsScreen via Get.toNamed(arguments: req)
+  late final Datum req;
+
+  @override
+  void initState() {
+    super.initState();
+    req = Get.arguments as Datum;
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────────
+  String _getInitials(String name) {
+    final parts = name.trim().split(' ');
+    if (parts.length >= 2) {
+      return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
+    }
+    return name.isNotEmpty ? name[0].toUpperCase() : '?';
+  }
+
+  String _monthName(int month) {
+    const months = [
+      '',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    return months[month];
+  }
+
+  String _capitalise(String s) =>
+      s.isNotEmpty ? s[0].toUpperCase() + s.substring(1).toLowerCase() : s;
+
   @override
   Widget build(BuildContext context) {
+    final name = req.requestFrom?.fullName ?? 'Unknown';
+    final initials = _getInitials(name);
+
     return Scaffold(
       backgroundColor: AppColors.background,
       body: Column(
@@ -54,14 +98,13 @@ class _AcceptRequestScreenState extends State<AcceptRequestScreen> {
             ),
           ),
 
-          Expanded(child: _buildRequestView()),
+          Expanded(child: _buildRequestView(name, initials)),
         ],
       ),
     );
   }
 
-  // ─── Request View ───────────────────────────────────────────────────────────
-  Widget _buildRequestView() {
+  Widget _buildRequestView(String name, String initials) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Container(
@@ -79,7 +122,7 @@ class _AcceptRequestScreenState extends State<AcceptRequestScreen> {
               radius: 38,
               backgroundColor: AppColors.primary,
               child: Text(
-                'RV',
+                initials,
                 style: text24(
                   fontWeight: FontWeight.bold,
                   color: AppColors.white,
@@ -90,7 +133,7 @@ class _AcceptRequestScreenState extends State<AcceptRequestScreen> {
 
             // Name
             Text(
-              'Rahul Verma',
+              name,
               style: text20(
                 fontWeight: FontWeight.bold,
                 color: AppColors.textPrimary,
@@ -105,20 +148,18 @@ class _AcceptRequestScreenState extends State<AcceptRequestScreen> {
 
             // Amount
             Text(
-              '₹2,000',
+              '₹${req.amount ?? 0}',
               style: text26(
                 fontWeight: FontWeight.bold,
                 color: AppColors.textPrimary,
               ),
             ),
             const SizedBox(height: 4),
-            Text(
-              'Medical emergency',
-              style: text13(color: AppColors.textSecondary),
-            ),
+            if (req.reason != null && req.reason!.isNotEmpty)
+              Text(req.reason!, style: text13(color: AppColors.textSecondary)),
             const SizedBox(height: 20),
 
-            // Details rows
+            // Details
             Container(
               decoration: BoxDecoration(
                 color: AppColors.lightBlue,
@@ -128,15 +169,50 @@ class _AcceptRequestScreenState extends State<AcceptRequestScreen> {
                 children: [
                   _detailRow(
                     'Return date',
-                    '30 May 2026',
+                    req.returnDate != null
+                        ? '${req.returnDate!.day} ${_monthName(req.returnDate!.month)} ${req.returnDate!.year}'
+                        : 'N/A',
                     valueColor: AppColors.button,
                   ),
                   Divider(height: 1, color: AppColors.grey200),
                   _detailRow(
                     'Repayment',
-                    'Auto Debit',
+                    _capitalise(req.repaymentMode ?? 'N/A'),
                     valueColor: AppColors.button,
                   ),
+                  Divider(height: 1, color: AppColors.grey200),
+                  _detailRow(
+                    'Receive via',
+                    _capitalise(req.receiveMethod ?? 'N/A'),
+                  ),
+                  if (req.receiveDetails?.upiId != null &&
+                      req.receiveDetails!.upiId!.isNotEmpty) ...[
+                    Divider(height: 1, color: AppColors.grey200),
+                    _detailRow('UPI ID', req.receiveDetails!.upiId!),
+                  ],
+                  if (req.receiveDetails?.accountNumber != null &&
+                      req.receiveDetails!.accountNumber!.isNotEmpty) ...[
+                    Divider(height: 1, color: AppColors.grey200),
+                    _detailRow(
+                      'Account No.',
+                      req.receiveDetails!.accountNumber!,
+                    ),
+                    Divider(height: 1, color: AppColors.grey200),
+                    _detailRow('IFSC', req.receiveDetails?.ifscCode ?? 'N/A'),
+                  ],
+                  if (req.receiveDetails?.accountHolderName != null &&
+                      req.receiveDetails!.accountHolderName!.isNotEmpty) ...[
+                    Divider(height: 1, color: AppColors.grey200),
+                    _detailRow(
+                      'Account holder',
+                      req.receiveDetails!.accountHolderName!,
+                    ),
+                  ],
+                  if (req.responseNote != null &&
+                      req.responseNote!.isNotEmpty) ...[
+                    Divider(height: 1, color: AppColors.grey200),
+                    _detailRow('Note', req.responseNote!),
+                  ],
                 ],
               ),
             ),
@@ -150,10 +226,12 @@ class _AcceptRequestScreenState extends State<AcceptRequestScreen> {
                     color: AppColors.grey,
                     height: 40,
                     title: "Decline",
-                    onTap: () {},
+                    onTap: () {
+                      // TODO: call decline API with req.id, then pop
+                      Get.back();
+                    },
                   ),
                 ),
-
                 const SizedBox(width: 10),
                 Expanded(
                   child: AppButton(
@@ -161,7 +239,8 @@ class _AcceptRequestScreenState extends State<AcceptRequestScreen> {
                     height: 40,
                     title: "Approve",
                     onTap: () {
-                      Get.toNamed(AppRoutes.confirmedRequest);
+                      // TODO: call approve API with req.id
+                      Get.toNamed(AppRoutes.confirmedRequest, arguments: req);
                     },
                   ),
                 ),
@@ -173,8 +252,6 @@ class _AcceptRequestScreenState extends State<AcceptRequestScreen> {
     );
   }
 
-  // ─── Approved View ──────────────────────────────────────────────────────────
-
   Widget _detailRow(String label, String value, {Color? valueColor}) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
@@ -182,11 +259,14 @@ class _AcceptRequestScreenState extends State<AcceptRequestScreen> {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(label, style: text13(color: AppColors.textSecondary)),
-          Text(
-            value,
-            style: text13(
-              fontWeight: FontWeight.w600,
-              color: valueColor ?? AppColors.textPrimary,
+          Flexible(
+            child: Text(
+              value,
+              textAlign: TextAlign.end,
+              style: text13(
+                fontWeight: FontWeight.w600,
+                color: valueColor ?? AppColors.textPrimary,
+              ),
             ),
           ),
         ],
