@@ -15,4 +15,13 @@ class AppUrls {
   //-----------------------------------------------
 
   static const String editProfile = '$baseUrl/user/auth/profile';
+
+  //-----------------------------------------------------------
+  // policy
+  //-----------------------------------------------
+
+  static const String policy = "$baseUrl/global/legal";
+  static const String privacyPolicy = "$baseUrl/global/privacy-policy";
+  static const String helpSupport = "$baseUrl/global/help-support";
+  static const String aboutUs = "$baseUrl/global/about-app";
 }

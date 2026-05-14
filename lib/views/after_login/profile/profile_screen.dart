@@ -285,16 +285,21 @@ class ProfileScreen extends StatelessWidget {
                         Icons.privacy_tip_outlined,
                         'Privacy Policy',
 
-                        () =>
-                            Get.to(() => PolicyPage(type: PolicyType.privacy)),
+                        () => Get.to(
+                          () => PolicyPage(type: PolicyType.privacyPolicy),
+                        ),
                       ),
                       _menuItem(
                         Icons.help_outline_rounded,
                         'Help & Support',
 
-                        () {},
+                        () {
+                          Get.toNamed(AppRoutes.helpSupport);
+                        },
                       ),
-                      _menuItem(Icons.info_outline_rounded, 'About App', () {}),
+                      _menuItem(Icons.info_outline_rounded, 'About App', () {
+                        Get.toNamed(AppRoutes.aboutApp);
+                      }),
                     ]),
 
                     const SizedBox(height: 32),

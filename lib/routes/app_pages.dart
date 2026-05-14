@@ -21,6 +21,8 @@ import 'package:leudaar_app/views/after_login/profile/dashboard_screen.dart';
 import 'package:leudaar_app/views/after_login/profile/edit_profile_page.dart';
 import 'package:leudaar_app/views/after_login/profile/micro_debit_rec_screen.dart';
 import 'package:leudaar_app/views/after_login/profile/my_wallet/my_wallet_screen.dart';
+import 'package:leudaar_app/views/after_login/profile/policy/aboutus_page.dart';
+import 'package:leudaar_app/views/after_login/profile/policy/help_support_page.dart';
 import 'package:leudaar_app/views/after_login/profile/profile_screen.dart';
 import 'package:leudaar_app/views/after_login/profile/request/accept_request_screen.dart';
 import 'package:leudaar_app/views/after_login/profile/request/confirmed_request_page.dart';
@@ -210,16 +212,16 @@ class AppPages {
     ),
 
     // ====================== policy ===========================
+    GetPage(
+      name: AppRoutes.helpSupport,
+      page: () => HelpSupportPage(),
+      transition: Transition.fadeIn,
+    ),
 
-    //     GetPage(name: AppRoutes.termsConditions,
-    //   page: () => const PolicyPage(
-    //     type: PolicyType.terms)),
-    // GetPage(name: AppRoutes.privacyPolicy,
-    //   page: () => const PolicyPage(
-    //     type: PolicyType.privacy)),
-    // GetPage(name: AppRoutes.helpSupport,
-    //   page: () => const HelpSupportPage()),
-    // GetPage(name: AppRoutes.aboutApp,
-    //   page: () => const AboutAppPage()),
+    GetPage(
+      name: AppRoutes.aboutApp,
+      page: () => AboutUsPage(),
+      transition: Transition.fadeIn,
+    ),
   ];
 }
