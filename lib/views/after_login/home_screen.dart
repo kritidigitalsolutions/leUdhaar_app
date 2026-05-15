@@ -186,7 +186,7 @@ class _CollapsedBar extends StatelessWidget {
             child: Obx(
               () => CircleAvatar(
                 radius: 19,
-                backgroundColor: const Color(0xFF1E2937),
+                backgroundColor: AppColors.white.withAlpha(30),
 
                 backgroundImage: profileCtr.selectedImage.value != null
                     ? FileImage(profileCtr.selectedImage.value!)
@@ -204,7 +204,7 @@ class _CollapsedBar extends StatelessWidget {
                             profileCtr.user.value!.profileImage!.isEmpty))
                     ? Text(
                         getInitials(profileCtr.user.value?.fullName),
-                        style: text30(
+                        style: text20(
                           fontWeight: FontWeight.bold,
                           color: AppColors.white,
                         ),

@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:leudaar_app/data/api_response.dart';
+import 'package:leudaar_app/models/response_model/profile_models/chat_list_res_model.dart';
 import 'package:leudaar_app/res/app_colors.dart';
 import 'package:leudaar_app/routes/app_routes.dart';
 import 'package:leudaar_app/utils/textstyle.dart';
+import 'package:leudaar_app/view_model/after_login/leUdhaar_controller/chat_controller.dart';
 import 'package:leudaar_app/views/custom_widget/custom_widget.dart';
 
 class MyChatListScreen extends StatelessWidget {
@@ -10,6 +13,13 @@ class MyChatListScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final controller = Get.put(ChatListController());
+
+    // Load data when screen opens
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      controller.getChatList(); // Changed method name for clarity
+    });
+
     return Scaffold(
       backgroundColor: AppColors.white,
       body: Column(
@@ -19,7 +29,7 @@ class MyChatListScreen extends StatelessWidget {
             decoration: BoxDecoration(color: AppColors.primary),
             child: Column(
               children: [
-                SizedBox(height: 50),
+                const SizedBox(height: 50),
                 Row(
                   children: [
                     backButton(),
@@ -72,110 +82,109 @@ class MyChatListScreen extends StatelessWidget {
                     ),
                   ],
                 ),
-                SizedBox(height: 15),
-                Row(
-                  children: [
-                    _buildTab("All", 6, isSelected: true),
-                    const SizedBox(width: 10),
-                    _buildTab("Unread", 2),
-                    const SizedBox(width: 10),
-                    _buildTab("Active deals", 0),
-                  ],
-                ),
-                SizedBox(height: 15),
+                const SizedBox(height: 15),
+                // Row(
+                //   children: [
+                //     _buildTab("All", 6, isSelected: true),
+                //     const SizedBox(width: 10),
+                //     _buildTab("Unread", 2),
+                //     const SizedBox(width: 10),
+                //     _buildTab("Active deals", 0),
+                //   ],
+                // ),
+                // const SizedBox(height: 15),
               ],
             ),
           ),
 
-          // Chat List
+          // Real Chat List
           Expanded(
-            child: ListView(
-              padding: EdgeInsets.zero,
-              children: [
-                _chatItem(
-                  name: "Amit Bhai",
-                  message: "15 ko auto debit ho...",
-                  amount: "₹500 due 15 May",
-                  amountColor: AppColors.error,
-                  time: "10:32 AM",
-                  unreadCount: 2,
-                ),
-                _chatItem(
-                  name: "Priya Didi",
-                  message: "Haan kar deti hoon kal tak...",
-                  amount: "₹500 due 15 May",
-                  amountColor: AppColors.success,
-                  time: "Yesterday",
-                  unreadCount: 2,
-                ),
-                _chatItem(
-                  name: "Priya Didi",
-                  message: "Haan kar deti hoon kal tak...",
-                  amount: "₹500 due 15 May",
-                  amountColor: AppColors.success,
-                  time: "Yesterday",
-                  unreadCount: 2,
-                ),
-                _chatItem(
-                  name: "Priya Didi",
-                  message: "Haan kar deti hoon kal tak...",
-                  amount: "₹500 due 15 May",
-                  amountColor: AppColors.success,
-                  time: "Yesterday",
-                  unreadCount: 2,
-                ),
-                _chatItem(
-                  name: "Priya Didi",
-                  message: "Haan kar deti hoon kal tak...",
-                  amount: "₹500 due 15 May",
-                  amountColor: AppColors.success,
-                  time: "Yesterday",
-                  unreadCount: 2,
-                ),
-              ],
-            ),
+            child: Obx(() {
+              final apiResponse = controller.chatListRes.value;
+
+              if (apiResponse.status == Status.loading) {
+                return const Center(child: CircularProgressIndicator());
+              }
+
+              if (apiResponse.status == Status.error) {
+                return Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text('Error: ${apiResponse.message}'),
+                      const SizedBox(height: 16),
+                      ElevatedButton(
+                        onPressed: controller.getChatList,
+                        child: const Text('Retry'),
+                      ),
+                    ],
+                  ),
+                );
+              }
+
+              final chats = apiResponse.data?.data ?? [];
+
+              if (chats.isEmpty) {
+                return const Center(child: Text('No chats found'));
+              }
+
+              return ListView.builder(
+                padding: EdgeInsets.zero,
+                itemCount: chats.length,
+                itemBuilder: (context, index) {
+                  final chat = chats[index];
+                  return _chatItem(chat);
+                },
+              );
+            }),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildTab(String title, int count, {bool isSelected = false}) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 10),
-        decoration: BoxDecoration(
-          color: isSelected ? AppColors.button : Colors.transparent,
-          border: Border.all(
-            color: isSelected ? AppColors.button : AppColors.grey50,
-          ),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Center(
-          child: Text(
-            "$title ($count)",
-            textAlign: TextAlign.center,
-            style: text15(
-              fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-              color: isSelected ? AppColors.white : AppColors.white70,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+  // Widget _buildTab(String title, int count, {bool isSelected = false}) {
+  //   return Expanded(
+  //     child: Container(
+  //       padding: const EdgeInsets.symmetric(vertical: 10),
+  //       decoration: BoxDecoration(
+  //         color: isSelected ? AppColors.button : Colors.transparent,
+  //         border: Border.all(
+  //           color: isSelected ? AppColors.button : AppColors.grey50,
+  //         ),
+  //         borderRadius: BorderRadius.circular(10),
+  //       ),
+  //       child: Center(
+  //         child: Text(
+  //           "$title ($count)",
+  //           textAlign: TextAlign.center,
+  //           style: text15(
+  //             fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+  //             color: isSelected ? AppColors.white : AppColors.white70,
+  //           ),
+  //         ),
+  //       ),
+  //     ),
+  //   );
+  // }
 
-  Widget _chatItem({
-    required String name,
-    required String message,
-    required String amount,
-    required Color amountColor,
-    required String time,
-    required int unreadCount,
-  }) {
+  Widget _chatItem(ChatListData chat) {
+    final other = chat.otherParticipant;
+    final lastMsg = chat.lastMessage;
+
+    final time = chat.lastMessageAt != null
+        ? _formatTime(chat.lastMessageAt!)
+        : '';
+
     return GestureDetector(
       onTap: () {
-        Get.toNamed(AppRoutes.myChatPage);
+        final Map<String, dynamic> otherUser = {
+          "id": other?.id ?? '',
+          "name": other?.fullName ?? '',
+          "phone": other?.phone ?? '',
+          "image": other?.profileImage ?? '',
+        };
+        Get.toNamed(AppRoutes.myChatPage, arguments: otherUser);
       },
       child: Container(
         decoration: BoxDecoration(
@@ -190,42 +199,55 @@ class MyChatListScreen extends StatelessWidget {
           leading: CircleAvatar(
             radius: 26,
             backgroundColor: AppColors.primary,
-            child: Text(
-              "AB",
-              style: text16(
-                fontWeight: FontWeight.w600,
-                color: AppColors.white,
-              ),
-            ),
+            backgroundImage: (other?.profileImage?.isNotEmpty == true)
+                ? NetworkImage(other!.profileImage!)
+                : null,
+            child: (other?.profileImage?.isEmpty ?? true)
+                ? Text(
+                    _getInitials(other?.fullName ?? ''),
+                    style: text16(
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.white,
+                    ),
+                  )
+                : null,
           ),
-          title: Text(name, style: text16(fontWeight: FontWeight.w600)),
+          title: Text(
+            other?.fullName ?? 'Unknown',
+            style: text16(fontWeight: FontWeight.w600),
+          ),
           subtitle: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                message,
+                chat.lastMessageText?.isNotEmpty == true
+                    ? chat.lastMessageText!
+                    : (lastMsg?.text ?? ''),
                 style: text14(color: AppColors.textSecondary),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
               const SizedBox(height: 4),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 3,
-                ),
-                decoration: BoxDecoration(
-                  color: amountColor.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text(
-                  amount,
-                  style: text13(
-                    fontWeight: FontWeight.w500,
-                    color: amountColor,
+              // You can show amount/status if available in your model
+              if (chat.lastMessageText?.contains('₹') == true ||
+                  lastMsg?.text?.contains('₹') == true)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.error.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    "Active Deal",
+                    style: text13(
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.error,
+                    ),
                   ),
                 ),
-              ),
             ],
           ),
           trailing: Column(
@@ -233,12 +255,12 @@ class MyChatListScreen extends StatelessWidget {
             children: [
               Text(time, style: text12(color: AppColors.textSecondary)),
               const SizedBox(height: 6),
-              if (unreadCount > 0)
+              if (chat.unreadCount != null && chat.unreadCount! > 0)
                 CircleAvatar(
                   radius: 10,
                   backgroundColor: AppColors.button,
                   child: Text(
-                    unreadCount.toString(),
+                    chat.unreadCount.toString(),
                     style: text11(
                       fontWeight: FontWeight.w600,
                       color: AppColors.white,
@@ -250,5 +272,25 @@ class MyChatListScreen extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  String _getInitials(String name) {
+    if (name.isEmpty) return 'U';
+    final parts = name.trim().split(' ');
+    if (parts.length > 1) {
+      return (parts[0][0] + parts[1][0]).toUpperCase();
+    }
+    return parts[0][0].toUpperCase();
+  }
+
+  String _formatTime(DateTime dateTime) {
+    final now = DateTime.now();
+    if (dateTime.day == now.day &&
+        dateTime.month == now.month &&
+        dateTime.year == now.year) {
+      return "${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}";
+    } else {
+      return "Yesterday";
+    }
   }
 }

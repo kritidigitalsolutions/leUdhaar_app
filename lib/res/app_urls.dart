@@ -26,9 +26,13 @@ class AppUrls {
   static const String aboutUs = "$baseUrl/global/about-app";
 
   //-----------------------------------------------------------
-  // profile edit
+  // profile related
   //-----------------------------------------------
 
   static const String contactChecker = '$baseUrl/user/contacts';
   static const String requestMoney = '$baseUrl/user/money-requests';
+  static const String dashboard = '$baseUrl/user/dashboard/all';
+  static const String chatList = '$baseUrl/user/chats';
+  static const String chats = '$baseUrl/user/chats/with';
+  static const String message = '$baseUrl/user/chats/messages';
 }

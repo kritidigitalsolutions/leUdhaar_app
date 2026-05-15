@@ -1,8 +1,14 @@
 import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
+import 'package:leudaar_app/data/api_response.dart';
+import 'package:leudaar_app/models/request_model/leUdhaar_request/leudhaarReq_modles.dart';
+import 'package:leudaar_app/repo/leUdhaar_repo.dart';
+
 import 'package:leudaar_app/res/app_colors.dart';
+import 'package:leudaar_app/utils/custom_snackbar.dart';
 import 'package:leudaar_app/utils/textstyle.dart';
 import 'package:leudaar_app/view_model/after_login/leUdhaar_controller/chat_controller.dart';
 
@@ -11,12 +17,30 @@ class ChatDetailScreen extends StatelessWidget {
 
   final controller = Get.put(ChatController());
 
+  final data = Get.arguments as Map<String, dynamic>;
+
+  // Scroll controller so we can auto-scroll to bottom on new messages
+  final ScrollController _scrollController = ScrollController();
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.background,
+    // Auto-scroll whenever messages list changes
+    ever(controller.messages, (_) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_scrollController.hasClients) {
+          _scrollController.animateTo(
+            _scrollController.position.maxScrollExtent,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOut,
+          );
+        }
+      });
+    });
 
-      // ── AppBar ─────────────────────────────────────
+    return Scaffold(
+      backgroundColor: const Color(0xFFF2EFE9),
+
+      // ── AppBar ─────────────────────────────────────────────────────────────
       appBar: AppBar(
         backgroundColor: AppColors.white,
         elevation: 0,
@@ -31,31 +55,62 @@ class ChatDetailScreen extends StatelessWidget {
         ),
         title: Row(
           children: [
-            CircleAvatar(
-              radius: 18,
-              backgroundColor: AppColors.primary,
-              child: Text(
-                "AK",
-                style: text12(
-                  fontWeight: FontWeight.w700,
-                ).copyWith(color: AppColors.white),
-              ),
+            Stack(
+              children: [
+                CircleAvatar(
+                  radius: 19,
+                  backgroundColor: AppColors.primary,
+                  child: Text(
+                    'AK',
+                    style: text12(
+                      fontWeight: FontWeight.w700,
+                    ).copyWith(color: AppColors.white),
+                  ),
+                ),
+                // Online dot
+                Obx(
+                  () => controller.isConnected.value
+                      ? Positioned(
+                          bottom: 0,
+                          right: 0,
+                          child: Container(
+                            width: 10,
+                            height: 10,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF3D9C6E),
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: AppColors.white,
+                                width: 1.5,
+                              ),
+                            ),
+                          ),
+                        )
+                      : const SizedBox.shrink(),
+                ),
+              ],
             ),
             const SizedBox(width: 10),
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  "Amit Kumar",
+                  data["name"] ?? '',
                   style: text14(
                     fontWeight: FontWeight.w600,
                   ).copyWith(color: AppColors.primary),
                 ),
-                Text(
-                  "Active 2 mins ago",
-                  style: text11(
-                    fontWeight: FontWeight.w400,
-                  ).copyWith(color: AppColors.success),
+                Obx(
+                  () => Text(
+                    controller.isOtherTyping.value
+                        ? 'typing…'
+                        : controller.connectionStatus.value,
+                    style: text11(fontWeight: FontWeight.w400).copyWith(
+                      color: controller.isOtherTyping.value
+                          ? AppColors.primary
+                          : AppColors.success,
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -78,16 +133,26 @@ class ChatDetailScreen extends StatelessWidget {
               size: 20,
             ),
             onSelected: (value) {
-              if (value == "delete") {
-                Get.snackbar("Deleted", "Chat deleted successfully");
+              if (value == 'delete') {
+                _confirmClearAllChat(context, controller); // ← was Get.snackbar
               }
             },
             itemBuilder: (context) => [
               PopupMenuItem(
-                value: "delete",
-                child: Text(
-                  "Delete Chat",
-                  style: text14(color: const Color(0xFF1A1A1A)),
+                value: 'delete',
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.delete_sweep_outlined,
+                      size: 18,
+                      color: Color(0xFFE53935),
+                    ),
+                    const SizedBox(width: 10),
+                    Text(
+                      'Clear Chat',
+                      style: text14(color: const Color(0xFFE53935)),
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -99,40 +164,90 @@ class ChatDetailScreen extends StatelessWidget {
         ),
       ),
 
-      // ── Body ───────────────────────────────────────
+      // ── Body ───────────────────────────────────────────────────────────────
       body: Column(
         children: [
+          // Messages list
+          // ── Replace the Expanded messages block in build() ─────────────────────
           Expanded(
-            child: Obx(
-              () => ListView.builder(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 12,
-                ),
-                itemCount: controller.messages.length,
-                itemBuilder: (_, index) {
-                  final msg = controller.messages[index];
+            child: Obx(() {
+              // Full-screen loader on first load
+              if (controller.isLoadingHistory.value &&
+                  controller.messages.isEmpty) {
+                return const Center(
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                );
+              }
 
-                  // Date separator
-                  bool showDate =
-                      index == 0 ||
-                      !_isSameDay(
-                        controller.messages[index - 1].time,
-                        msg.time,
+              return RefreshIndicator(
+                color: AppColors.primary,
+                onRefresh: controller.refreshHistory, // ← pull-to-refresh
+                child: NotificationListener<ScrollNotification>(
+                  onNotification: (notification) {
+                    // Load more when user reaches the very top
+                    if (notification is ScrollStartNotification &&
+                        _scrollController.position.pixels <=
+                            _scrollController.position.minScrollExtent + 80) {
+                      controller.loadMoreHistory();
+                    }
+                    return false;
+                  },
+                  child: ListView.builder(
+                    controller: _scrollController,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 12,
+                    ),
+                    itemCount:
+                        (controller.isLoadingMore.value ? 1 : 0) +
+                        controller.messages.length,
+                    itemBuilder: (_, index) {
+                      // "Loading older…" spinner pinned at top
+                      if (controller.isLoadingMore.value && index == 0) {
+                        return const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 10),
+                          child: Center(
+                            child: SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          ),
+                        );
+                      }
+
+                      final msgIndex = controller.isLoadingMore.value
+                          ? index - 1
+                          : index;
+                      final msg = controller.messages[msgIndex];
+                      final showDate =
+                          msgIndex == 0 ||
+                          !_isSameDay(
+                            controller.messages[msgIndex - 1].time,
+                            msg.time,
+                          );
+
+                      return Column(
+                        children: [
+                          if (showDate) _DateSeparator(msg.time),
+                          _buildMessage(context, msg),
+                        ],
                       );
-
-                  return Column(
-                    children: [
-                      if (showDate) _DateSeparator(msg.time),
-                      _buildMessage(msg),
-                    ],
-                  );
-                },
-              ),
-            ),
+                    },
+                  ),
+                ),
+              );
+            }),
           ),
 
-          // ── Input bar ────────────────────────────
+          // Typing indicator row (above input)
+          Obx(
+            () => controller.isOtherTyping.value
+                ? _TypingIndicator(name: data['name'] ?? '')
+                : const SizedBox.shrink(),
+          ),
+
+          // Input bar
           SafeArea(child: _ChatInputBar(controller: controller)),
         ],
       ),
@@ -142,55 +257,87 @@ class ChatDetailScreen extends StatelessWidget {
   bool _isSameDay(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;
 
-  Widget _buildMessage(ChatMessage msg) {
-    // Special: Udhaar card
+  Widget _buildMessage(BuildContext context, ChatMessage msg) {
     if (msg.type == MessageType.udhaar) {
       return _UdhaarCardBubble(msg: msg);
     }
-
-    // Waiting pill
     if (msg.type == MessageType.status) {
-      return _WaitingPill(text: msg.text ?? "");
+      return _WaitingPill(text: msg.text ?? '');
     }
 
-    return Align(
-      alignment: msg.isMe ? Alignment.centerRight : Alignment.centerLeft,
-      child: Column(
-        crossAxisAlignment: msg.isMe
-            ? CrossAxisAlignment.end
-            : CrossAxisAlignment.start,
-        children: [
-          Container(
-            margin: const EdgeInsets.only(bottom: 2),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            constraints: BoxConstraints(maxWidth: Get.width * 0.72),
-            decoration: BoxDecoration(
-              color: msg.isMe ? AppColors.primary : AppColors.white,
-              borderRadius: BorderRadius.only(
-                topLeft: const Radius.circular(16),
-                topRight: const Radius.circular(16),
-                bottomLeft: Radius.circular(msg.isMe ? 16 : 4),
-                bottomRight: Radius.circular(msg.isMe ? 4 : 16),
+    return GestureDetector(
+      // ← wrap start
+      onLongPress: () => _confirmDeleteMessage(context, controller, msg),
+      child: Align(
+        alignment: msg.isMe ? Alignment.centerRight : Alignment.centerLeft,
+        child: Column(
+          crossAxisAlignment: msg.isMe
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
+          children: [
+            Container(
+              margin: const EdgeInsets.only(bottom: 2),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              constraints: BoxConstraints(maxWidth: Get.width * 0.72),
+              decoration: BoxDecoration(
+                color: msg.isMe ? AppColors.primary : AppColors.white,
+                borderRadius: BorderRadius.only(
+                  topLeft: const Radius.circular(16),
+                  topRight: const Radius.circular(16),
+                  bottomLeft: Radius.circular(msg.isMe ? 16 : 4),
+                  bottomRight: Radius.circular(msg.isMe ? 4 : 16),
+                ),
+                boxShadow: msg.isMe
+                    ? null
+                    : [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.04),
+                          blurRadius: 6,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+              ),
+              child: _MessageContent(msg: msg),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8, left: 4, right: 4),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    DateFormat('hh:mm a').format(msg.time),
+                    style: text10(
+                      fontWeight: FontWeight.w400,
+                    ).copyWith(color: const Color(0xFF9E9A94)),
+                  ),
+                  if (msg.isMe && msg.isPending) ...[
+                    const SizedBox(width: 4),
+                    const Icon(
+                      Icons.schedule_rounded,
+                      size: 10,
+                      color: Color(0xFFBEB9B2),
+                    ),
+                  ] else if (msg.isMe && !msg.isPending) ...[
+                    const SizedBox(width: 4),
+                    const Icon(
+                      Icons.done_all_rounded,
+                      size: 10,
+                      color: Color(0xFF3D9C6E),
+                    ),
+                  ],
+                ],
               ),
             ),
-            child: _MessageContent(msg: msg),
-          ),
-          Padding(
-            padding: const EdgeInsets.only(bottom: 8, left: 4, right: 4),
-            child: Text(
-              DateFormat('hh:mm a').format(msg.time),
-              style: text10(
-                fontWeight: FontWeight.w400,
-              ).copyWith(color: const Color(0xFF9E9A94)),
-            ),
-          ),
-        ],
-      ),
+          ],
+        ),
+      ), // ← wrap end
     );
   }
 }
 
-// ── Date separator ────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// DATE SEPARATOR
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _DateSeparator extends StatelessWidget {
   final DateTime date;
@@ -201,18 +348,27 @@ class _DateSeparator extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 12),
       child: Center(
-        child: Text(
-          DateFormat('MMMM d, y').format(date),
-          style: text11(
-            fontWeight: FontWeight.w400,
-          ).copyWith(color: const Color(0xFF9E9A94)),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
+          decoration: BoxDecoration(
+            color: const Color(0xFFE4E1DB),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Text(
+            DateFormat('MMMM d, y').format(date),
+            style: text11(
+              fontWeight: FontWeight.w500,
+            ).copyWith(color: const Color(0xFF7A7670)),
+          ),
         ),
       ),
     );
   }
 }
 
-// ── Message content ───────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// MESSAGE CONTENT
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _MessageContent extends StatelessWidget {
   final ChatMessage msg;
@@ -220,56 +376,58 @@ class _MessageContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (msg.type == MessageType.text) {
-      return Text(
-        msg.text ?? "",
-        style: text14(
-          color: msg.isMe ? const Color(0xFFF7F5F1) : AppColors.textPrimary,
-        ).copyWith(height: 1.5),
-      );
-    }
+    switch (msg.type) {
+      case MessageType.text:
+        return Text(
+          msg.text ?? '',
+          style: text14(
+            color: msg.isMe ? const Color(0xFFF7F5F1) : AppColors.textPrimary,
+          ).copyWith(height: 1.5),
+        );
 
-    if (msg.type == MessageType.image) {
-      return ClipRRect(
-        borderRadius: BorderRadius.circular(10),
-        child: Image.file(
-          File(msg.imagePath!),
-          height: 180,
-          width: 180,
-          fit: BoxFit.cover,
-        ),
-      );
-    }
-
-    if (msg.type == MessageType.file) {
-      return Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            Icons.insert_drive_file_outlined,
-            size: 20,
-            color: msg.isMe ? Colors.white70 : const Color(0xFF4A4845),
+      case MessageType.image:
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: Image.file(
+            File(msg.imagePath!),
+            height: 180,
+            width: 180,
+            fit: BoxFit.cover,
           ),
-          const SizedBox(width: 8),
-          Flexible(
-            child: Text(
-              msg.fileName ?? "",
-              style: text13(
-                color: msg.isMe
-                    ? AppColors.textSecondary
-                    : AppColors.textPrimary,
+        );
+
+      case MessageType.file:
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.insert_drive_file_outlined,
+              size: 20,
+              color: msg.isMe ? Colors.white70 : const Color(0xFF4A4845),
+            ),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                msg.fileName ?? '',
+                style: text13(
+                  color: msg.isMe
+                      ? AppColors.textSecondary
+                      : AppColors.textPrimary,
+                ),
               ),
             ),
-          ),
-        ],
-      );
-    }
+          ],
+        );
 
-    return const SizedBox.shrink();
+      default:
+        return const SizedBox.shrink();
+    }
   }
 }
 
-// ── Udhaar card bubble ────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// UDHAAR CARD BUBBLE
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _UdhaarCardBubble extends StatelessWidget {
   final ChatMessage msg;
@@ -277,108 +435,116 @@ class _UdhaarCardBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isUpi = msg.paymentMethod == PaymentMethod.upi;
+
     return Align(
       alignment: Alignment.centerRight,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          Container(
-            margin: const EdgeInsets.only(bottom: 2),
-            padding: const EdgeInsets.all(14),
-            width: Get.width * 0.65,
-            decoration: BoxDecoration(
-              color: AppColors.primary,
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(16),
-                topRight: Radius.circular(16),
-                bottomLeft: Radius.circular(16),
-                bottomRight: Radius.circular(4),
-              ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 2),
+        padding: const EdgeInsets.all(16),
+        width: Get.width * 0.68,
+        decoration: BoxDecoration(
+          color: AppColors.primary,
+          borderRadius: const BorderRadius.only(
+            topLeft: Radius.circular(16),
+            topRight: Radius.circular(16),
+            bottomLeft: Radius.circular(16),
+            bottomRight: Radius.circular(4),
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ── Label ────────────────────────────────────────────────
+            Row(
               children: [
-                // Label row
-                Row(
-                  children: [
-                    const Icon(
-                      Icons.currency_rupee_rounded,
-                      size: 14,
-                      color: Color(0xFF9E9A94),
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      "Udhaar Requested",
-                      style: text11(
-                        fontWeight: FontWeight.w500,
-                      ).copyWith(color: const Color(0xFF9E9A94)),
-                    ),
-                  ],
+                const Icon(
+                  Icons.currency_rupee_rounded,
+                  size: 13,
+                  color: Color(0xFF9E9A94),
                 ),
-
-                const SizedBox(height: 6),
-
-                // Amount
+                const SizedBox(width: 4),
                 Text(
-                  "₹${NumberFormat('#,##,###').format(msg.udhaarAmount ?? 0)}",
-                  style: const TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white,
-                    height: 1.1,
-                    letterSpacing: -0.5,
-                  ),
-                ),
-
-                const SizedBox(height: 10),
-
-                // Due date
-                _UdhaarRow(
-                  icon: Icons.calendar_today_outlined,
-                  text: "Due: ${msg.udhaarDueDate ?? ''}",
-                ),
-                const SizedBox(height: 4),
-
-                // Protection
-                _UdhaarRow(
-                  icon: Icons.verified_user_outlined,
-                  text: msg.udhaarProtection ?? "",
-                ),
-
-                const SizedBox(height: 10),
-
-                // Footer
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 3,
-                      ),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFAC775).withOpacity(0.15),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Text(
-                        "Pending Acceptance",
-                        style: text10(
-                          fontWeight: FontWeight.w600,
-                        ).copyWith(color: const Color(0xFFFAC775)),
-                      ),
-                    ),
-                    Text(
-                      DateFormat('hh:mm a').format(msg.time),
-                      style: text10(
-                        fontWeight: FontWeight.w400,
-                      ).copyWith(color: const Color(0xFF7A7670)),
-                    ),
-                  ],
+                  'Udhaar Requested',
+                  style: text11(
+                    fontWeight: FontWeight.w500,
+                  ).copyWith(color: const Color(0xFF9E9A94)),
                 ),
               ],
             ),
-          ),
-        ],
+
+            const SizedBox(height: 6),
+
+            // ── Amount ───────────────────────────────────────────────
+            Text(
+              '₹${NumberFormat('#,##,###').format(msg.udhaarAmount ?? 0)}',
+              style: const TextStyle(
+                fontSize: 28,
+                fontWeight: FontWeight.w700,
+                color: Colors.white,
+                height: 1.1,
+                letterSpacing: -0.5,
+              ),
+            ),
+
+            const SizedBox(height: 10),
+
+            // ── Due date ─────────────────────────────────────────────
+            _UdhaarRow(
+              icon: Icons.calendar_today_outlined,
+              text: 'Due: ${msg.udhaarDueDate ?? ''}',
+            ),
+            const SizedBox(height: 4),
+
+            // ── Protection ───────────────────────────────────────────
+            _UdhaarRow(
+              icon: Icons.verified_user_outlined,
+              text: msg.udhaarProtection ?? '',
+            ),
+            const SizedBox(height: 4),
+
+            // ── Payment method ───────────────────────────────────────
+            _UdhaarRow(
+              icon: isUpi
+                  ? Icons.account_balance_wallet_outlined
+                  : Icons.account_balance_outlined,
+              text: isUpi
+                  ? 'UPI: ${msg.upiId ?? ''}'
+                  : 'Bank: ${msg.accountNumber ?? ''} (${msg.ifscCode ?? ''})',
+            ),
+
+            const SizedBox(height: 12),
+
+            // ── Footer ───────────────────────────────────────────────
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFAC775).withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    'Pending Acceptance',
+                    style: text10(
+                      fontWeight: FontWeight.w600,
+                    ).copyWith(color: const Color(0xFFFAC775)),
+                  ),
+                ),
+                Text(
+                  DateFormat('hh:mm a').format(msg.time),
+                  style: text10(
+                    fontWeight: FontWeight.w400,
+                  ).copyWith(color: const Color(0xFF7A7670)),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -409,7 +575,9 @@ class _UdhaarRow extends StatelessWidget {
   }
 }
 
-// ── Waiting pill ──────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// WAITING / STATUS PILL
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _WaitingPill extends StatelessWidget {
   final String text;
@@ -434,11 +602,13 @@ class _WaitingPill extends StatelessWidget {
               color: Color(0xFF3D9C6E),
             ),
             const SizedBox(width: 6),
-            Text(
-              text,
-              style: text11(
-                fontWeight: FontWeight.w500,
-              ).copyWith(color: const Color(0xFF5A5651)),
+            Flexible(
+              child: Text(
+                text,
+                style: text11(
+                  fontWeight: FontWeight.w500,
+                ).copyWith(color: const Color(0xFF5A5651)),
+              ),
             ),
           ],
         ),
@@ -447,7 +617,87 @@ class _WaitingPill extends StatelessWidget {
   }
 }
 
-// ── Chat input bar ────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// TYPING INDICATOR
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _TypingIndicator extends StatefulWidget {
+  final String name;
+  const _TypingIndicator({required this.name});
+
+  @override
+  State<_TypingIndicator> createState() => _TypingIndicatorState();
+}
+
+class _TypingIndicatorState extends State<_TypingIndicator>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _ac;
+
+  @override
+  void initState() {
+    super.initState();
+    _ac = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _ac.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.only(left: 12, bottom: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: AppColors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.04),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: List.generate(3, (i) {
+            return AnimatedBuilder(
+              animation: _ac,
+              builder: (_, _) {
+                final phase = (_ac.value - i * 0.2).clamp(0.0, 1.0);
+                final scale =
+                    0.6 + 0.4 * (phase < 0.5 ? phase * 2 : (1 - phase) * 2);
+                return Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 2),
+                  width: 7,
+                  height: 7,
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withOpacity(0.5 + 0.5 * scale),
+                    shape: BoxShape.circle,
+                  ),
+                  transform: Matrix4.identity()
+                    ..translate(0.0, -3.0 * (scale - 0.6) / 0.4),
+                );
+              },
+            );
+          }),
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CHAT INPUT BAR
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _ChatInputBar extends StatelessWidget {
   final ChatController controller;
@@ -463,7 +713,7 @@ class _ChatInputBar extends StatelessWidget {
       ),
       child: Row(
         children: [
-          // ── Rupee button → opens bottom sheet ──
+          // ── ₹ Udhaar button ──────────────────────────────────────
           GestureDetector(
             onTap: () => _showUdhaarSheet(context, controller),
             child: Container(
@@ -475,7 +725,7 @@ class _ChatInputBar extends StatelessWidget {
               ),
               alignment: Alignment.center,
               child: Text(
-                "₹",
+                '₹',
                 style: text16(
                   fontWeight: FontWeight.w700,
                   color: AppColors.white,
@@ -486,7 +736,7 @@ class _ChatInputBar extends StatelessWidget {
 
           const SizedBox(width: 8),
 
-          // ── Message input ───────────────────────
+          // ── Text input ───────────────────────────────────────────
           Expanded(
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -496,9 +746,11 @@ class _ChatInputBar extends StatelessWidget {
               ),
               child: TextField(
                 controller: controller.messageController,
+                onChanged: controller.onTypingChanged,
+                onSubmitted: (_) => controller.sendText(),
                 style: text14().copyWith(color: const Color(0xFF1A1A1A)),
                 decoration: const InputDecoration(
-                  hintText: "Message...",
+                  hintText: 'Message…',
                   hintStyle: TextStyle(color: Color(0xFFBEB9B2), fontSize: 14),
                   border: InputBorder.none,
                   isDense: true,
@@ -510,39 +762,53 @@ class _ChatInputBar extends StatelessWidget {
 
           const SizedBox(width: 6),
 
-          // ── Attachment ──────────────────────────
+          // ── Attachment ───────────────────────────────────────────
           PopupMenuButton<String>(
             icon: const Icon(
               Icons.attach_file_rounded,
               color: Color(0xFF9E9A94),
               size: 20,
             ),
-            color: Colors.white,
+            color: AppColors.white,
             onSelected: (value) {
-              if (value == "image") controller.sendImage();
-              if (value == "file") controller.sendFile();
+              if (value == 'image') controller.sendImage();
+              if (value == 'file') controller.sendFile();
             },
             itemBuilder: (_) => const [
-              PopupMenuItem(value: "image", child: Text("Send Image")),
-              PopupMenuItem(value: "file", child: Text("Send File")),
+              PopupMenuItem(value: 'image', child: Text('Send Image')),
+              PopupMenuItem(value: 'file', child: Text('Send File')),
             ],
           ),
 
-          // ── Send button ─────────────────────────
-          GestureDetector(
-            onTap: controller.sendText,
-            child: Container(
-              width: 36,
-              height: 36,
-              decoration: const BoxDecoration(
-                color: AppColors.primary,
-                shape: BoxShape.circle,
-              ),
-              alignment: Alignment.center,
-              child: const Icon(
-                Icons.send_rounded,
-                color: AppColors.white,
-                size: 16,
+          // ── Send button ──────────────────────────────────────────
+          Obx(
+            () => GestureDetector(
+              onTap: controller.isSending.value ? null : controller.sendText,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: controller.isSending.value
+                      ? AppColors.primary.withOpacity(0.5)
+                      : AppColors.primary,
+                  shape: BoxShape.circle,
+                ),
+                alignment: Alignment.center,
+                child: controller.isSending.value
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: AppColors.white,
+                        ),
+                      )
+                    : const Icon(
+                        Icons.send_rounded,
+                        color: AppColors.white,
+                        size: 16,
+                      ),
               ),
             ),
           ),
@@ -552,20 +818,146 @@ class _ChatInputBar extends StatelessWidget {
   }
 }
 
-// ── Udhaar bottom sheet ───────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════════════════════
+// UDHAAR BOTTOM SHEET  (2-step: loan details → payment method)
+// ═════════════════════════════════════════════════════════════════════════════
 
 void _showUdhaarSheet(BuildContext context, ChatController controller) {
   final amountCtrl = TextEditingController();
   final dateCtrl = TextEditingController();
-  final selectedProtection = 'basic'.obs;
+  final upiCtrl = TextEditingController();
+  final accNumberCtrl = TextEditingController();
+  final ifscCtrl = TextEditingController();
+  final holderCtrl = TextEditingController();
+
+  final selectedRepaymentMode = 'auto-debit'.obs;
+  final selectedPayment = Rxn<PaymentMethod>(PaymentMethod.upi);
   DateTime? pickedDate;
 
+  Future<void> pickDate() async {
+    final date = await showDatePicker(
+      context: context,
+      initialDate: DateTime.now().add(const Duration(days: 7)),
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 365 * 2)),
+      builder: (ctx, child) => Theme(
+        data: ThemeData.light().copyWith(
+          colorScheme: const ColorScheme.light(primary: Color(0xFF1A1A1A)),
+        ),
+        child: child!,
+      ),
+    );
+    if (date != null) {
+      pickedDate = date;
+      dateCtrl.text = DateFormat('yyyy-MM-dd').format(date);
+    }
+  }
+
+  RequestMoneyReqModel _buildRequestModel() {
+    String receiveMethodStr = '';
+
+    if (selectedPayment.value == PaymentMethod.upi) {
+      receiveMethodStr = 'upi';
+    } else if (selectedPayment.value == PaymentMethod.bank) {
+      receiveMethodStr = 'bankTransfer';
+    }
+
+    ReceiveDetails receiveDetails;
+
+    if (selectedPayment.value == PaymentMethod.upi) {
+      receiveDetails = ReceiveDetails(upiId: upiCtrl.text.trim());
+    } else if (selectedPayment.value == PaymentMethod.bank) {
+      receiveDetails = ReceiveDetails(
+        accountHolderName: holderCtrl.text.trim(),
+        accountNumber: accNumberCtrl.text.trim(),
+        ifscCode: ifscCtrl.text.trim(),
+      );
+    } else {
+      receiveDetails = ReceiveDetails();
+    }
+
+    return RequestMoneyReqModel(
+      requestTo: controller.otherUserId, // ← Important: Get from ChatController
+      amount:
+          int.tryParse(amountCtrl.text.trim()) ??
+          0, // or keep as double if your model supports it
+      reason: "Udhaar Request from Chat", // You can make this dynamic
+      returnDate: DateFormat('yyyy-MM-dd').format(pickedDate!),
+      repaymentMode: selectedRepaymentMode.value,
+      receiveMethod: receiveMethodStr,
+      receiveDetails: receiveDetails,
+    );
+  }
+
+  void sendRequest() async {
+    final amount = double.tryParse(amountCtrl.text.trim()) ?? 0;
+
+    if (amount <= 0 || pickedDate == null) {
+      AppSnackbar.show(
+        title: 'Missing info',
+        message: 'Please enter amount and select a date',
+        type: SnackBarType.error,
+      );
+      return;
+    }
+
+    if (selectedPayment.value == null) {
+      AppSnackbar.show(
+        title: 'Missing info',
+        message: 'Please select a payment method',
+        type: SnackBarType.error,
+      );
+      return;
+    }
+
+    if (selectedPayment.value == PaymentMethod.upi &&
+        upiCtrl.text.trim().isEmpty) {
+      AppSnackbar.show(
+        title: 'Missing info',
+        message: 'Please enter your UPI ID',
+        type: SnackBarType.error,
+      );
+      return;
+    }
+
+    if (selectedPayment.value == PaymentMethod.bank &&
+        (accNumberCtrl.text.trim().isEmpty ||
+            ifscCtrl.text.trim().isEmpty ||
+            holderCtrl.text.trim().isEmpty)) {
+      AppSnackbar.show(
+        title: 'Missing info',
+        message: 'Please fill all bank details',
+        type: SnackBarType.error,
+      );
+      return;
+    }
+
+    // final repaymentLabel = 'Repayment Mode: ${_repaymentModeTitle(selectedRepaymentMode.value)}';
+
+    // Build Request Model
+    final model = _buildRequestModel();
+
+    try {
+      final LeudhaarRepo _repo = LeudhaarRepo();
+      await _repo.requestMoney(model);
+
+      AppSnackbar.show(
+        title: 'Success',
+        message: 'Udhaar request sent successfully!',
+        type: SnackBarType.success,
+      );
+
+      Get.back(); // Close bottom sheet
+    } catch (e) {
+      AppSnackbar.show(
+        title: 'Failed',
+        message: e.toString(),
+        type: SnackBarType.error,
+      );
+    }
+  }
+
   Get.bottomSheet(
-    isScrollControlled: true,
-    backgroundColor: AppColors.white,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-    ),
     Padding(
       padding: EdgeInsets.only(
         left: 24,
@@ -574,185 +966,408 @@ void _showUdhaarSheet(BuildContext context, ChatController controller) {
         bottom: MediaQuery.of(context).viewInsets.bottom + 24,
       ),
       child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Handle
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFD3D1C7),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 20),
-
-            Text(
-              "Request Udhaar",
-              style: const TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w700,
-                color: AppColors.textPrimary,
-                letterSpacing: -0.3,
-              ),
-            ),
-
-            const SizedBox(height: 24),
-
-            // Amount
-            const _SheetLabel("Amount Needed (₹)"),
-            const SizedBox(height: 8),
-            _SheetTextField(
-              controller: amountCtrl,
-              hint: "0.00",
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              prefix: "₹",
-            ),
-
-            const SizedBox(height: 20),
-
-            // Repayment date
-            const _SheetLabel("Repayment Date"),
-            const SizedBox(height: 8),
-            GestureDetector(
-              onTap: () async {
-                final date = await showDatePicker(
-                  context: context,
-                  initialDate: DateTime.now().add(const Duration(days: 7)),
-                  firstDate: DateTime.now(),
-                  lastDate: DateTime.now().add(const Duration(days: 365 * 2)),
-                  builder: (ctx, child) => Theme(
-                    data: ThemeData.light().copyWith(
-                      colorScheme: const ColorScheme.light(
-                        primary: Color(0xFF1A1A1A),
-                      ),
-                    ),
-                    child: child!,
-                  ),
-                );
-                if (date != null) {
-                  pickedDate = date;
-                  dateCtrl.text = DateFormat('yyyy-MM-dd').format(date);
-                }
-              },
-              child: AbsorbPointer(
-                child: _SheetTextField(
-                  controller: dateCtrl,
-                  hint: "Select date",
-                  suffix: const Icon(
-                    Icons.calendar_today_outlined,
-                    size: 18,
-                    color: Color(0xFF9E9A94),
-                  ),
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 24),
-
-            // Protection options
-            Text(
-              "Offer Protection to Lender",
-              style: text13(
-                fontWeight: FontWeight.w600,
-              ).copyWith(color: const Color(0xFF1A1A1A)),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              "Build trust by offering automated recovery methods.",
-              style: text12(
-                fontWeight: FontWeight.w400,
-              ).copyWith(color: const Color(0xFF7A7670)),
-            ),
-
-            const SizedBox(height: 12),
-
-            Obx(
-              () => Column(
-                children: [
-                  _ProtectionOption(
-                    value: "basic",
-                    groupValue: selectedProtection.value,
-                    title: "Le'Udhaar Basic",
-                    subtitle:
-                        "Auto-debit, calling reminders & optional micro-debits.",
-                    icon: Icons.verified_user_outlined,
-                    onChanged: (v) => selectedProtection.value = v!,
-                  ),
-                  const SizedBox(height: 10),
-                  _ProtectionOption(
-                    value: "legal",
-                    groupValue: selectedProtection.value,
-                    title: "Le'Legally Enforcement",
-                    subtitle:
-                        "AI MoU drafting, E-sign, Auto-debit & Micro-debits.",
-                    icon: Icons.balance_outlined,
-                    onChanged: (v) => selectedProtection.value = v!,
-                  ),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 28),
-
-            // Send button
-            GestureDetector(
-              onTap: () {
-                final amount = double.tryParse(amountCtrl.text.trim()) ?? 0;
-                if (amount <= 0 || pickedDate == null) {
-                  Get.snackbar(
-                    "Missing info",
-                    "Please enter amount and select a date",
-                    backgroundColor: Colors.white,
-                    colorText: const Color(0xFF1A1A1A),
-                  );
-                  return;
-                }
-                final protectionLabel = selectedProtection.value == 'basic'
-                    ? "Basic Le Udhaar (Auto-Debit, Reminders & Micro-debits) Offered"
-                    : "Le'Legally Enforcement (AI MoU, E-sign & Micro-debits) Offered";
-
-                controller.sendUdhaarRequest(
-                  amount: amount,
-                  dueDate: DateFormat('yyyy-MM-dd').format(pickedDate!),
-                  protection: protectionLabel,
-                );
-                Get.back();
-              },
-              child: Container(
-                height: 54,
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1A1A1A),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                alignment: Alignment.center,
-                child: const Text(
-                  "Send Loan Request",
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0.2,
-                  ),
-                ),
-              ),
-            ),
-          ],
+        child: _buildLoanDetailsStep(
+          key: const ValueKey('loan'),
+          amountCtrl: amountCtrl,
+          dateCtrl: dateCtrl,
+          selectedRepaymentMode: selectedRepaymentMode,
+          selectedPayment: selectedPayment,
+          upiCtrl: upiCtrl,
+          accNumberCtrl: accNumberCtrl,
+          ifscCtrl: ifscCtrl,
+          holderCtrl: holderCtrl,
+          context: context,
+          onPickDate: pickDate,
+          onSend: sendRequest,
         ),
       ),
     ),
+    isScrollControlled: true,
+    backgroundColor: AppColors.white,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+    ),
+  );
+}
+// ── Step 1 builder ────────────────────────────────────────────────────────────
+
+Widget _buildLoanDetailsStep({
+  Key? key,
+  required TextEditingController amountCtrl,
+  required TextEditingController dateCtrl,
+  required RxString selectedRepaymentMode,
+  required Rxn<PaymentMethod> selectedPayment,
+  required TextEditingController upiCtrl,
+  required TextEditingController accNumberCtrl,
+  required TextEditingController ifscCtrl,
+  required TextEditingController holderCtrl,
+  required BuildContext context,
+  required VoidCallback onPickDate,
+  required VoidCallback onSend,
+}) {
+  return Column(
+    key: key,
+    crossAxisAlignment: CrossAxisAlignment.start,
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      // Handle
+      _SheetHandle(),
+      const SizedBox(height: 20),
+
+      Text(
+        'Request Udhaar',
+        style: text20(
+          fontWeight: FontWeight.w700,
+          color: AppColors.textPrimary,
+        ).copyWith(letterSpacing: -0.3),
+      ),
+
+      const SizedBox(height: 6),
+      Text(
+        'Fill in the loan details to send a request.',
+        style: text12(
+          fontWeight: FontWeight.w400,
+        ).copyWith(color: const Color(0xFF7A7670)),
+      ),
+
+      const SizedBox(height: 24),
+
+      // Amount
+      const _SheetLabel('Amount Needed (₹)'),
+      const SizedBox(height: 8),
+      _SheetTextField(
+        controller: amountCtrl,
+        hint: '0.00',
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        prefix: '₹',
+      ),
+
+      const SizedBox(height: 20),
+
+      // Repayment date
+      const _SheetLabel('Repayment Date'),
+      const SizedBox(height: 8),
+      GestureDetector(
+        onTap: onPickDate,
+        child: AbsorbPointer(
+          child: _SheetTextField(
+            controller: dateCtrl,
+            hint: 'Select date',
+            suffix: const Icon(
+              Icons.calendar_today_outlined,
+              size: 18,
+              color: Color(0xFF9E9A94),
+            ),
+          ),
+        ),
+      ),
+
+      const SizedBox(height: 24),
+
+      Text(
+        'Repayment Mode',
+        style: text14(
+          fontWeight: FontWeight.w600,
+          color: AppColors.textPrimary,
+        ),
+      ),
+      const SizedBox(height: 12),
+
+      ..._sheetRepaymentModes.map(
+        (mode) => _SheetRepaymentOptionCard(
+          mode: mode,
+          selectedRepaymentMode: selectedRepaymentMode,
+        ),
+      ),
+
+      const SizedBox(height: 12),
+
+      Text(
+        'How will you get money?',
+        style: text14(
+          fontWeight: FontWeight.w600,
+          color: AppColors.textPrimary,
+        ),
+      ),
+      const SizedBox(height: 12),
+
+      SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: _sheetPaymentMethods.map((method) {
+            return Obx(() {
+              final paymentMethod = method['type'] as PaymentMethod;
+              final isSelected = selectedPayment.value == paymentMethod;
+
+              return GestureDetector(
+                onTap: () => selectedPayment.value = paymentMethod,
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  margin: const EdgeInsets.only(right: 10),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: isSelected ? AppColors.button : AppColors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: isSelected ? AppColors.button : AppColors.grey200,
+                      width: isSelected ? 1.8 : 1,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        method['icon'] as IconData,
+                        size: 18,
+                        color: isSelected
+                            ? AppColors.white
+                            : AppColors.textSecondary,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        method['title'].toString(),
+                        style: text13(
+                          fontWeight: FontWeight.w600,
+                          color: isSelected
+                              ? AppColors.white
+                              : AppColors.textPrimary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            });
+          }).toList(),
+        ),
+      ),
+
+      const SizedBox(height: 16),
+
+      Obx(
+        () => _buildSheetPaymentFields(
+          selectedPayment: selectedPayment,
+          upiCtrl: upiCtrl,
+          accNumberCtrl: accNumberCtrl,
+          ifscCtrl: ifscCtrl,
+          holderCtrl: holderCtrl,
+        ),
+      ),
+
+      const SizedBox(height: 28),
+
+      _PrimaryButton(label: 'Send Loan Request', onTap: onSend),
+      const SizedBox(height: 4),
+    ],
   );
 }
 
-// ── Bottom sheet sub-widgets ──────────────────────────────────────────────────
+final List<Map<String, dynamic>> _sheetRepaymentModes = [
+  {
+    'title': 'AutoPay',
+    'type': 'auto-debit',
+    'subtitle': 'Auto debit on due date',
+    'desc': 'Automatic deduction + reminders & calling support',
+    'icon': Icons.autorenew_rounded,
+  },
+  {
+    'title': 'Micro Debit',
+    'type': 'micro-debit',
+    'subtitle': 'Daily micro-debits',
+    'desc': 'Daily small debits + reminders & support',
+    'icon': Icons.calendar_today_rounded,
+  },
+  {
+    'title': 'Smart Protect',
+    'type': 'smart-protect',
+    'subtitle': 'Autodebit + Failsafe',
+    'desc': 'Autodebit + microdebit backup + recovery workflow',
+    'icon': Icons.security_rounded,
+  },
+  {
+    'title': 'Manual Support',
+    'type': 'manual',
+    'subtitle': 'Manual repayment',
+    'desc': 'Manual payment with reminders & calling assistance',
+    'icon': Icons.support_agent_rounded,
+  },
+];
+
+final List<Map<String, dynamic>> _sheetPaymentMethods = [
+  {
+    'title': 'UPI',
+    'type': PaymentMethod.upi,
+    'icon': Icons.account_balance_wallet_rounded,
+  },
+  {
+    'title': 'Bank Transfer',
+    'type': PaymentMethod.bank,
+    'icon': Icons.account_balance_rounded,
+  },
+];
+
+// String _repaymentModeTitle(String type) {
+//   for (final mode in _sheetRepaymentModes) {
+//     if (mode['type'] == type) {
+//       return mode['title'].toString();
+//     }
+//   }
+//   return type;
+// }
+
+Widget _buildSheetPaymentFields({
+  required Rxn<PaymentMethod> selectedPayment,
+  required TextEditingController upiCtrl,
+  required TextEditingController accNumberCtrl,
+  required TextEditingController ifscCtrl,
+  required TextEditingController holderCtrl,
+}) {
+  if (selectedPayment.value == PaymentMethod.upi) {
+    return Column(
+      key: const ValueKey('UPI'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SheetLabel('Your UPI ID'),
+        const SizedBox(height: 8),
+        _SheetTextField(
+          controller: upiCtrl,
+          hint: 'e.g. name@upi',
+          suffix: const Icon(
+            Icons.account_balance_wallet_outlined,
+            size: 20,
+            color: Color(0xFF9E9A94),
+          ),
+        ),
+      ],
+    );
+  }
+
+  return Column(
+    key: const ValueKey('Bank'),
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      const _SheetLabel('Account Holder Name'),
+      const SizedBox(height: 8),
+      _SheetTextField(controller: holderCtrl, hint: 'Enter full name'),
+      const SizedBox(height: 14),
+      const _SheetLabel('Account Number'),
+      const SizedBox(height: 8),
+      _SheetTextField(
+        controller: accNumberCtrl,
+        hint: 'Enter account number',
+        keyboardType: TextInputType.number,
+      ),
+      const SizedBox(height: 14),
+      const _SheetLabel('IFSC Code'),
+      const SizedBox(height: 8),
+      _SheetTextField(
+        controller: ifscCtrl,
+        hint: 'e.g. SBIN0001234',
+        suffix: const Icon(
+          Icons.account_balance_outlined,
+          size: 20,
+          color: Color(0xFF9E9A94),
+        ),
+      ),
+    ],
+  );
+}
+
+class _SheetRepaymentOptionCard extends StatelessWidget {
+  final Map<String, dynamic> mode;
+  final RxString selectedRepaymentMode;
+
+  const _SheetRepaymentOptionCard({
+    required this.mode,
+    required this.selectedRepaymentMode,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Obx(() {
+      final isSelected = selectedRepaymentMode.value == mode['type'];
+
+      return GestureDetector(
+        onTap: () => selectedRepaymentMode.value = mode['type'].toString(),
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: isSelected
+                ? AppColors.button.withOpacity(0.08)
+                : AppColors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isSelected ? AppColors.button : AppColors.grey200,
+              width: isSelected ? 1.8 : 1,
+            ),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: isSelected ? AppColors.button : AppColors.grey100,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  mode['icon'] as IconData,
+                  color: isSelected ? Colors.white : AppColors.textSecondary,
+                  size: 26,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      mode['title'].toString(),
+                      style: text16(fontWeight: FontWeight.w600),
+                    ),
+                    Text(
+                      mode['subtitle'].toString(),
+                      style: text13(color: AppColors.textSecondary),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      mode['desc'].toString(),
+                      style: text12(color: AppColors.textSecondary),
+                    ),
+                  ],
+                ),
+              ),
+              if (isSelected)
+                const Icon(
+                  Icons.check_circle_rounded,
+                  color: AppColors.button,
+                  size: 26,
+                ),
+            ],
+          ),
+        ),
+      );
+    });
+  }
+}
+
+class _SheetHandle extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Container(
+        width: 40,
+        height: 4,
+        decoration: BoxDecoration(
+          color: const Color(0xFFD3D1C7),
+          borderRadius: BorderRadius.circular(10),
+        ),
+      ),
+    );
+  }
+}
 
 class _SheetLabel extends StatelessWidget {
   final String text;
@@ -836,81 +1451,321 @@ class _SheetTextField extends StatelessWidget {
   }
 }
 
-class _ProtectionOption extends StatelessWidget {
-  final String value;
-  final String groupValue;
-  final String title;
-  final String subtitle;
-  final IconData icon;
-  final ValueChanged<String?> onChanged;
-
-  const _ProtectionOption({
-    required this.value,
-    required this.groupValue,
-    required this.title,
-    required this.subtitle,
-    required this.icon,
-    required this.onChanged,
-  });
+class _PrimaryButton extends StatelessWidget {
+  final String label;
+  final VoidCallback onTap;
+  const _PrimaryButton({required this.label, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    final selected = value == groupValue;
     return GestureDetector(
-      onTap: () => onChanged(value),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.all(14),
+      onTap: onTap,
+      child: Container(
+        height: 54,
+        width: double.infinity,
         decoration: BoxDecoration(
-          color: selected
-              ? const Color(0xFF1A1A1A).withOpacity(0.04)
-              : Colors.white,
+          color: const Color(0xFF1A1A1A),
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: selected ? const Color(0xFF1A1A1A) : const Color(0xFFE4E1DB),
-            width: selected ? 1.5 : 1,
-          ),
         ),
-        child: Row(
-          children: [
-            Icon(
-              icon,
-              size: 20,
-              color: selected
-                  ? const Color(0xFF1A1A1A)
-                  : const Color(0xFF9E9A94),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: text13(
-                      fontWeight: FontWeight.w600,
-                    ).copyWith(color: const Color(0xFF1A1A1A)),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    style: text11(
-                      fontWeight: FontWeight.w400,
-                    ).copyWith(color: const Color(0xFF7A7670)),
-                  ),
-                ],
-              ),
-            ),
-            Radio<String>(
-              value: value,
-              groupValue: groupValue,
-              onChanged: onChanged,
-              activeColor: const Color(0xFF1A1A1A),
-              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ),
-          ],
+        alignment: Alignment.center,
+        child: Text(
+          label,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.2,
+          ),
         ),
       ),
     );
   }
+}
+
+// ── Delete single message confirmation ────────────────────────────────────────
+void _confirmDeleteMessage(
+  BuildContext context,
+  ChatController controller,
+  ChatMessage msg,
+) {
+  if (msg.id == null || msg.id!.isEmpty) {
+    // Optimistic message not yet ack'd — just remove locally
+    controller.messages.remove(msg);
+    return;
+  }
+
+  showModalBottomSheet(
+    context: context,
+    backgroundColor: AppColors.white,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+    ),
+    builder: (_) => Padding(
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Handle
+          Container(
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: const Color(0xFFD3D1C7),
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+          const SizedBox(height: 20),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFEBEE),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.delete_outline_rounded,
+              color: Color(0xFFE53935),
+              size: 28,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            'Delete Message?',
+            style: text16(
+              fontWeight: FontWeight.w700,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'This message will be permanently deleted.',
+            style: text13(color: const Color(0xFF7A7670)),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 24),
+          Row(
+            children: [
+              // Cancel
+              Expanded(
+                child: GestureDetector(
+                  onTap: () => Get.back(),
+                  child: Container(
+                    height: 50,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF2EFE9),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      'Cancel',
+                      style: text14(
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              // Delete
+              Expanded(
+                child: Obx(() {
+                  final loading =
+                      controller.msgRes.value?.status == Status.loading;
+                  return GestureDetector(
+                    onTap: loading
+                        ? null
+                        : () async {
+                            await controller.msgDelete(msg.id!);
+                            if (controller.msgRes.value?.status ==
+                                Status.completed) {
+                              controller.messages.remove(msg);
+                              Get.back();
+                              AppSnackbar.show(
+                                title: 'Deleted',
+                                message: 'Message deleted',
+                                type: SnackBarType.success,
+                              );
+                            } else {
+                              AppSnackbar.show(
+                                title: 'Error',
+                                message: 'Could not delete message',
+                                type: SnackBarType.error,
+                              );
+                            }
+                          },
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      height: 50,
+                      decoration: BoxDecoration(
+                        color: loading
+                            ? const Color(0xFFE53935).withOpacity(0.5)
+                            : const Color(0xFFE53935),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      alignment: Alignment.center,
+                      child: loading
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : Text(
+                              'Delete',
+                              style: text14(
+                                fontWeight: FontWeight.w600,
+                                color: Colors.white,
+                              ),
+                            ),
+                    ),
+                  );
+                }),
+              ),
+            ],
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+// ── Clear all chat confirmation ───────────────────────────────────────────────
+void _confirmClearAllChat(BuildContext context, ChatController controller) {
+  showModalBottomSheet(
+    context: context,
+    backgroundColor: AppColors.white,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+    ),
+    builder: (_) => Padding(
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: const Color(0xFFD3D1C7),
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+          const SizedBox(height: 20),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: const BoxDecoration(
+              color: Color(0xFFFFEBEE),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.delete_sweep_outlined,
+              color: Color(0xFFE53935),
+              size: 28,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            'Clear Entire Chat?',
+            style: text16(
+              fontWeight: FontWeight.w700,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'All messages will be permanently deleted.\nThis cannot be undone.',
+            style: text13(color: const Color(0xFF7A7670)),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 24),
+          Row(
+            children: [
+              Expanded(
+                child: GestureDetector(
+                  onTap: () => Get.back(),
+                  child: Container(
+                    height: 50,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF2EFE9),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      'Cancel',
+                      style: text14(
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Obx(() {
+                  final loading =
+                      controller.clearAllChatRes.value?.status ==
+                      Status.loading;
+                  return GestureDetector(
+                    onTap: loading
+                        ? null
+                        : () async {
+                            await controller.clearAllChat(
+                              controller.otherUserId,
+                            );
+                            if (controller.clearAllChatRes.value?.status ==
+                                Status.completed) {
+                              controller.messages.clear();
+                              Get.back();
+                              AppSnackbar.show(
+                                title: 'Cleared',
+                                message: 'Chat cleared successfully',
+                                type: SnackBarType.success,
+                              );
+                            } else {
+                              AppSnackbar.show(
+                                title: 'Error',
+                                message: 'Could not clear chat',
+                                type: SnackBarType.error,
+                              );
+                            }
+                          },
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      height: 50,
+                      decoration: BoxDecoration(
+                        color: loading
+                            ? const Color(0xFFE53935).withOpacity(0.5)
+                            : const Color(0xFFE53935),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      alignment: Alignment.center,
+                      child: loading
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : Text(
+                              'Clear All',
+                              style: text14(
+                                fontWeight: FontWeight.w600,
+                                color: Colors.white,
+                              ),
+                            ),
+                    ),
+                  );
+                }),
+              ),
+            ],
+          ),
+        ],
+      ),
+    ),
+  );
 }
