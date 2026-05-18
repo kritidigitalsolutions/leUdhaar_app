@@ -48,15 +48,17 @@ class Data {
 
 class Message {
   Message({
-    required this.id,
-    required this.sender,
-    required this.receiver,
-    required this.messageType,
-    required this.text,
-    required this.isRead,
-    required this.readAt,
-    required this.createdAt,
-    required this.updatedAt,
+    this.id,
+    this.sender,
+    this.receiver,
+    this.messageType,
+    this.text,
+    this.attachment, // ← NEW
+    this.status,
+    this.isRead,
+    this.readAt,
+    this.createdAt,
+    this.updatedAt,
   });
 
   final String? id;
@@ -64,6 +66,8 @@ class Message {
   final String? receiver;
   final String? messageType;
   final String? text;
+  final String? status;
+  final Map<String, dynamic>? attachment; // ← NEW (Important)
   final bool? isRead;
   final DateTime? readAt;
   final DateTime? createdAt;
@@ -76,6 +80,10 @@ class Message {
       receiver: json["receiver"],
       messageType: json["messageType"],
       text: json["text"],
+      status: json['status'],
+      attachment: json["attachment"] is Map<String, dynamic>
+          ? json["attachment"] as Map<String, dynamic>
+          : null,
       isRead: json["isRead"],
       readAt: DateTime.tryParse(json["readAt"] ?? ""),
       createdAt: DateTime.tryParse(json["createdAt"] ?? ""),
@@ -86,11 +94,11 @@ class Message {
 
 class OtherUser {
   OtherUser({
-    required this.id,
-    required this.fullName,
-    required this.phone,
-    required this.profileImage,
-    required this.accountStatus,
+    this.id,
+    this.fullName,
+    this.phone,
+    this.profileImage,
+    this.accountStatus,
   });
 
   final String? id;
@@ -111,12 +119,7 @@ class OtherUser {
 }
 
 class Pagination {
-  Pagination({
-    required this.page,
-    required this.limit,
-    required this.totalMessages,
-    required this.hasMore,
-  });
+  Pagination({this.page, this.limit, this.totalMessages, this.hasMore});
 
   final int? page;
   final int? limit;

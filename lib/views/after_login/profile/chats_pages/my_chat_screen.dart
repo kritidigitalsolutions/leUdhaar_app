@@ -9,34 +9,70 @@ import 'package:leudaar_app/repo/leUdhaar_repo.dart';
 
 import 'package:leudaar_app/res/app_colors.dart';
 import 'package:leudaar_app/utils/custom_snackbar.dart';
+import 'package:leudaar_app/utils/service/socket_service.dart';
 import 'package:leudaar_app/utils/textstyle.dart';
 import 'package:leudaar_app/view_model/after_login/leUdhaar_controller/chat_controller.dart';
 
-class ChatDetailScreen extends StatelessWidget {
+class ChatDetailScreen extends StatefulWidget {
   ChatDetailScreen({super.key});
 
+  @override
+  State<ChatDetailScreen> createState() => _ChatDetailScreenState();
+}
+
+class _ChatDetailScreenState extends State<ChatDetailScreen> {
   final controller = Get.put(ChatController());
 
   final data = Get.arguments as Map<String, dynamic>;
 
-  // Scroll controller so we can auto-scroll to bottom on new messages
+  // Add this in ChatDetailScreen class
   final ScrollController _scrollController = ScrollController();
+  final socketService = Get.find<SocketService>();
+
+  // Replace the ever listener with this:
+  // 1. REPLACE initState() with this:
+  @override
+  void initState() {
+    super.initState();
+
+    ever(controller.messages, (_) {
+      _scrollToBottom();
+    });
+
+    // Scroll after first history load too
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _scrollToBottom();
+    });
+  }
+
+  // 2. REPLACE _scrollToBottom() with this:
+  void _scrollToBottom() {
+    // Wait for current frame to finish, then wait one more frame
+    // so ListView has actually laid out the new item.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scrollController.hasClients) return;
+
+      // Use jumpTo for instant snap on first load,
+      // animateTo for new messages
+      _scrollController.animateTo(
+        _scrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOut,
+      );
+    });
+  }
+
+  String _getLastSeenText(DateTime? lastSeen) {
+    if (lastSeen == null) return "Offline";
+    final diff = DateTime.now().difference(lastSeen);
+    if (diff.inMinutes < 1) return "Just now";
+    if (diff.inMinutes < 60) return "${diff.inMinutes}m ago";
+    if (diff.inHours < 24) return "${diff.inHours}h ago";
+    return "${diff.inDays}d ago";
+  }
 
   @override
   Widget build(BuildContext context) {
-    // Auto-scroll whenever messages list changes
-    ever(controller.messages, (_) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (_scrollController.hasClients) {
-          _scrollController.animateTo(
-            _scrollController.position.maxScrollExtent,
-            duration: const Duration(milliseconds: 300),
-            curve: Curves.easeOut,
-          );
-        }
-      });
-    });
-
     return Scaffold(
       backgroundColor: const Color(0xFFF2EFE9),
 
@@ -69,7 +105,7 @@ class ChatDetailScreen extends StatelessWidget {
                 ),
                 // Online dot
                 Obx(
-                  () => controller.isConnected.value
+                  () => controller.isOtherUserOnline.value
                       ? Positioned(
                           bottom: 0,
                           right: 0,
@@ -77,7 +113,7 @@ class ChatDetailScreen extends StatelessWidget {
                             width: 10,
                             height: 10,
                             decoration: BoxDecoration(
-                              color: const Color(0xFF3D9C6E),
+                              color: AppColors.success,
                               shape: BoxShape.circle,
                               border: Border.all(
                                 color: AppColors.white,
@@ -104,11 +140,13 @@ class ChatDetailScreen extends StatelessWidget {
                   () => Text(
                     controller.isOtherTyping.value
                         ? 'typing…'
-                        : controller.connectionStatus.value,
+                        : controller.isOtherUserOnline.value
+                        ? 'Online'
+                        : _getLastSeenText(controller.otherUserLastSeen.value),
                     style: text11(fontWeight: FontWeight.w400).copyWith(
-                      color: controller.isOtherTyping.value
-                          ? AppColors.primary
-                          : AppColors.success,
+                      color: controller.isOtherUserOnline.value
+                          ? AppColors.success
+                          : Colors.grey,
                     ),
                   ),
                 ),
@@ -171,7 +209,6 @@ class ChatDetailScreen extends StatelessWidget {
           // ── Replace the Expanded messages block in build() ─────────────────────
           Expanded(
             child: Obx(() {
-              // Full-screen loader on first load
               if (controller.isLoadingHistory.value &&
                   controller.messages.isEmpty) {
                 return const Center(
@@ -179,30 +216,36 @@ class ChatDetailScreen extends StatelessWidget {
                 );
               }
 
-              return RefreshIndicator(
-                color: AppColors.primary,
-                onRefresh: controller.refreshHistory, // ← pull-to-refresh
-                child: NotificationListener<ScrollNotification>(
-                  onNotification: (notification) {
-                    // Load more when user reaches the very top
-                    if (notification is ScrollStartNotification &&
-                        _scrollController.position.pixels <=
-                            _scrollController.position.minScrollExtent + 80) {
-                      controller.loadMoreHistory();
-                    }
-                    return false;
-                  },
+              return NotificationListener<ScrollNotification>(
+                onNotification: (notification) {
+                  if (notification is ScrollStartNotification &&
+                      _scrollController.hasClients &&
+                      _scrollController.position.pixels <=
+                          _scrollController.position.minScrollExtent + 80) {
+                    controller.loadMoreHistory();
+                  }
+                  return false;
+                },
+                child: RefreshIndicator(
+                  color: AppColors.primary,
+                  onRefresh: controller.refreshHistory,
                   child: ListView.builder(
                     controller: _scrollController,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 12,
+                    reverse: false,
+                    shrinkWrap: false,
+                    key: const PageStorageKey('chat_messages'),
+                    padding: const EdgeInsets.only(
+                      left: 12,
+                      right: 12,
+                      top: 12,
+                      // Extra bottom padding so last message
+                      // is never hidden behind the input bar
+                      bottom: 8,
                     ),
                     itemCount:
                         (controller.isLoadingMore.value ? 1 : 0) +
                         controller.messages.length,
                     itemBuilder: (_, index) {
-                      // "Loading older…" spinner pinned at top
                       if (controller.isLoadingMore.value && index == 0) {
                         return const Padding(
                           padding: EdgeInsets.symmetric(vertical: 10),
@@ -239,7 +282,6 @@ class ChatDetailScreen extends StatelessWidget {
               );
             }),
           ),
-
           // Typing indicator row (above input)
           Obx(
             () => controller.isOtherTyping.value
@@ -266,7 +308,6 @@ class ChatDetailScreen extends StatelessWidget {
     }
 
     return GestureDetector(
-      // ← wrap start
       onLongPress: () => _confirmDeleteMessage(context, controller, msg),
       child: Align(
         alignment: msg.isMe ? Alignment.centerRight : Alignment.centerLeft,
@@ -299,8 +340,15 @@ class ChatDetailScreen extends StatelessWidget {
               ),
               child: _MessageContent(msg: msg),
             ),
+
+            // Time + Status Row
             Padding(
-              padding: const EdgeInsets.only(bottom: 8, left: 4, right: 4),
+              padding: const EdgeInsets.only(
+                top: 2,
+                bottom: 8,
+                left: 4,
+                right: 4,
+              ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -310,28 +358,43 @@ class ChatDetailScreen extends StatelessWidget {
                       fontWeight: FontWeight.w400,
                     ).copyWith(color: const Color(0xFF9E9A94)),
                   ),
-                  if (msg.isMe && msg.isPending) ...[
-                    const SizedBox(width: 4),
-                    const Icon(
-                      Icons.schedule_rounded,
-                      size: 10,
-                      color: Color(0xFFBEB9B2),
-                    ),
-                  ] else if (msg.isMe && !msg.isPending) ...[
-                    const SizedBox(width: 4),
-                    const Icon(
-                      Icons.done_all_rounded,
-                      size: 10,
-                      color: Color(0xFF3D9C6E),
-                    ),
+
+                  if (msg.isMe) ...[
+                    const SizedBox(width: 6),
+                    _buildMessageStatus(msg),
                   ],
                 ],
               ),
             ),
           ],
         ),
-      ), // ← wrap end
+      ),
     );
+  }
+
+  Widget _buildMessageStatus(ChatMessage msg) {
+    // Pending (sending)
+    if (msg.isPending) {
+      return const Icon(
+        Icons.schedule_rounded,
+        size: 14,
+        color: Color(0xFFBEB9B2),
+      );
+    }
+
+    final isOnline = controller.isOtherUserOnline.value;
+
+    if (!isOnline) {
+      // Single Tick - Grey (Sent but not delivered)
+      return const Icon(Icons.check, size: 14, color: Color(0xFF9E9A94));
+    } else {
+      // Double Tick
+      final color = (msg.status == 'read')
+          ? const Color(0xFF3D9C6E) // Blue/Green when read
+          : const Color(0xFF9E9A94); // Grey when delivered
+
+      return Icon(Icons.done_all_rounded, size: 14, color: color);
+    }
   }
 }
 
@@ -377,22 +440,63 @@ class _MessageContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     switch (msg.type) {
-      case MessageType.text:
-        return Text(
-          msg.text ?? '',
-          style: text14(
-            color: msg.isMe ? const Color(0xFFF7F5F1) : AppColors.textPrimary,
-          ).copyWith(height: 1.5),
-        );
-
       case MessageType.image:
-        return ClipRRect(
-          borderRadius: BorderRadius.circular(10),
-          child: Image.file(
-            File(msg.imagePath!),
-            height: 180,
-            width: 180,
-            fit: BoxFit.cover,
+        // Priority 1: Use server URL (for received & successfully sent images)
+        if (msg.imageUrl != null && msg.imageUrl!.isNotEmpty) {
+          print(msg.imageUrl!);
+          return ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: Image.network(
+              msg.imageUrl!,
+              height: 200,
+              width: 200,
+              fit: BoxFit.cover,
+              loadingBuilder: (context, child, progress) {
+                if (progress == null) return child;
+                return const SizedBox(
+                  height: 200,
+                  width: 200,
+                  child: Center(
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                );
+              },
+              errorBuilder: (context, error, stackTrace) {
+                return Container(
+                  height: 200,
+                  width: 200,
+                  color: Colors.grey[300],
+                  child: const Icon(Icons.broken_image, color: Colors.red),
+                );
+              },
+            ),
+          );
+        }
+
+        // Priority 2: Use local path (for optimistic/sending images)
+        if (msg.imagePath != null && msg.imagePath!.isNotEmpty) {
+          return ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: Image.file(
+              File(msg.imagePath!),
+              height: 200,
+              width: 200,
+              fit: BoxFit.cover,
+            ),
+          );
+        }
+
+        // Fallback
+        return SizedBox(
+          height: 200,
+          width: 200,
+          child: Center(
+            child: Text(
+              "Image unavailable",
+              style: text13(
+                color: msg.isMe ? AppColors.white : AppColors.textPrimary,
+              ),
+            ),
           ),
         );
 
@@ -400,27 +504,34 @@ class _MessageContent extends StatelessWidget {
         return Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              Icons.insert_drive_file_outlined,
-              size: 20,
-              color: msg.isMe ? Colors.white70 : const Color(0xFF4A4845),
-            ),
+            const Icon(Icons.insert_drive_file_outlined, size: 24),
             const SizedBox(width: 8),
             Flexible(
               child: Text(
-                msg.fileName ?? '',
-                style: text13(
-                  color: msg.isMe
-                      ? AppColors.textSecondary
-                      : AppColors.textPrimary,
-                ),
+                msg.fileName ?? 'Unknown File',
+                style: text13(),
+                overflow: TextOverflow.ellipsis,
               ),
             ),
+            if (msg.fileUrl != null && msg.fileUrl!.isNotEmpty)
+              IconButton(
+                icon: const Icon(Icons.download, size: 18),
+                onPressed: () {
+                  // TODO: Implement download
+                  Get.snackbar('Download', 'Downloading ${msg.fileName}...');
+                },
+              ),
           ],
         );
 
+      case MessageType.text:
       default:
-        return const SizedBox.shrink();
+        return Text(
+          msg.text ?? '',
+          style: text14(
+            color: msg.isMe ? AppColors.white : AppColors.textPrimary,
+          ).copyWith(height: 1.4),
+        );
     }
   }
 }
@@ -853,7 +964,7 @@ void _showUdhaarSheet(BuildContext context, ChatController controller) {
     }
   }
 
-  RequestMoneyReqModel _buildRequestModel() {
+  RequestMoneyReqModel buildRequestModel() {
     String receiveMethodStr = '';
 
     if (selectedPayment.value == PaymentMethod.upi) {
@@ -932,14 +1043,14 @@ void _showUdhaarSheet(BuildContext context, ChatController controller) {
       return;
     }
 
-    // final repaymentLabel = 'Repayment Mode: ${_repaymentModeTitle(selectedRepaymentMode.value)}';
-
     // Build Request Model
-    final model = _buildRequestModel();
+    final model = buildRequestModel();
 
     try {
-      final LeudhaarRepo _repo = LeudhaarRepo();
-      await _repo.requestMoney(model);
+      final LeudhaarRepo repo = LeudhaarRepo();
+      await repo.requestMoney(model);
+
+      Get.back();
 
       AppSnackbar.show(
         title: 'Success',

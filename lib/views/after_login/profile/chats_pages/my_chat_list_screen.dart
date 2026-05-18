@@ -4,6 +4,7 @@ import 'package:leudaar_app/data/api_response.dart';
 import 'package:leudaar_app/models/response_model/profile_models/chat_list_res_model.dart';
 import 'package:leudaar_app/res/app_colors.dart';
 import 'package:leudaar_app/routes/app_routes.dart';
+import 'package:leudaar_app/utils/service/socket_service.dart';
 import 'package:leudaar_app/utils/textstyle.dart';
 import 'package:leudaar_app/view_model/after_login/leUdhaar_controller/chat_controller.dart';
 import 'package:leudaar_app/views/custom_widget/custom_widget.dart';
@@ -143,32 +144,8 @@ class MyChatListScreen extends StatelessWidget {
     );
   }
 
-  // Widget _buildTab(String title, int count, {bool isSelected = false}) {
-  //   return Expanded(
-  //     child: Container(
-  //       padding: const EdgeInsets.symmetric(vertical: 10),
-  //       decoration: BoxDecoration(
-  //         color: isSelected ? AppColors.button : Colors.transparent,
-  //         border: Border.all(
-  //           color: isSelected ? AppColors.button : AppColors.grey50,
-  //         ),
-  //         borderRadius: BorderRadius.circular(10),
-  //       ),
-  //       child: Center(
-  //         child: Text(
-  //           "$title ($count)",
-  //           textAlign: TextAlign.center,
-  //           style: text15(
-  //             fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-  //             color: isSelected ? AppColors.white : AppColors.white70,
-  //           ),
-  //         ),
-  //       ),
-  //     ),
-  //   );
-  // }
-
   Widget _chatItem(ChatListData chat) {
+    final socketService = Get.find<SocketService>();
     final other = chat.otherParticipant;
     final lastMsg = chat.lastMessage;
 
@@ -196,21 +173,40 @@ class MyChatListScreen extends StatelessWidget {
             horizontal: 16,
             vertical: 12,
           ),
-          leading: CircleAvatar(
-            radius: 26,
-            backgroundColor: AppColors.primary,
-            backgroundImage: (other?.profileImage?.isNotEmpty == true)
-                ? NetworkImage(other!.profileImage!)
-                : null,
-            child: (other?.profileImage?.isEmpty ?? true)
-                ? Text(
-                    _getInitials(other?.fullName ?? ''),
-                    style: text16(
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.white,
-                    ),
-                  )
-                : null,
+          leading: Stack(
+            children: [
+              CircleAvatar(
+                radius: 26,
+                backgroundColor: AppColors.primary,
+                backgroundImage: (other?.profileImage?.isNotEmpty == true)
+                    ? NetworkImage(other!.profileImage!)
+                    : null,
+                child: (other?.profileImage?.isEmpty ?? true)
+                    ? Text(
+                        _getInitials(other?.fullName ?? ''),
+                        style: text16(
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.white,
+                        ),
+                      )
+                    : null,
+              ),
+              Positioned(
+                bottom: 10,
+                right: 10,
+                child: Obx(() {
+                  final online =
+                      socketService.onlineUsers[other?.id ?? ''] ?? false;
+
+                  return CircleAvatar(
+                    radius: 4,
+                    backgroundColor: online
+                        ? AppColors.success
+                        : AppColors.transparent,
+                  );
+                }),
+              ),
+            ],
           ),
           title: Text(
             other?.fullName ?? 'Unknown',
@@ -255,18 +251,23 @@ class MyChatListScreen extends StatelessWidget {
             children: [
               Text(time, style: text12(color: AppColors.textSecondary)),
               const SizedBox(height: 6),
-              if (chat.unreadCount != null && chat.unreadCount! > 0)
-                CircleAvatar(
-                  radius: 10,
-                  backgroundColor: AppColors.button,
-                  child: Text(
-                    chat.unreadCount.toString(),
-                    style: text11(
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.white,
-                    ),
-                  ),
-                ),
+              Obx(() {
+                print("CHAT UI ID => ${chat.id}");
+                print("ALL COUNTS => ${socketService.unreadCounts}");
+
+                final count =
+                    socketService.unreadCounts[chat.id.toString()] ?? 0;
+
+                return count > 0
+                    ? CircleAvatar(
+                        radius: 10,
+                        child: Text(
+                          '$count',
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                      )
+                    : const SizedBox();
+              }),
             ],
           ),
         ),

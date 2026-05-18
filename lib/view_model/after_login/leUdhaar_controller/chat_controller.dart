@@ -1,13 +1,15 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
-import 'package:get/get.dart';
+import 'package:get/get.dart' hide FormData, MultipartFile;
+import 'package:leudaar_app/utils/service/socket_service.dart';
+import 'package:path/path.dart' as p;
 import 'package:image_picker/image_picker.dart';
 import 'package:leudaar_app/data/api_response.dart';
-import 'package:leudaar_app/models/response_model/auth_models/verify_res_model.dart';
 import 'package:leudaar_app/models/response_model/leudhaar_res/contact_checked_res_model.dart';
 import 'package:leudaar_app/models/response_model/profile_models/chat_history_res_model.dart';
 import 'package:leudaar_app/models/response_model/profile_models/chat_list_res_model.dart';
@@ -21,10 +23,30 @@ class ChatListController extends GetxController {
 
   final chatListRes = ApiResponse<ChatListResModel>.loading().obs;
 
+  late final SocketService _socketService;
+
+  @override
+  void onInit() {
+    super.onInit();
+    _socketService = Get.find<SocketService>();
+  }
+
   Future<void> getChatList() async {
-    // ← Renamed
     chatListRes.value = ApiResponse.loading();
-    chatListRes.value = await _repo.getChatList();
+    try {
+      final result = await _repo.getChatList();
+      chatListRes.value = result;
+
+      // Seed unread counts into SocketService after loading
+      final chats = result.data?.data ?? [];
+      for (final chat in chats) {
+        if (chat.id != null && chat.unreadCount != null) {
+          _socketService.setInitialUnread(chat.id!, chat.unreadCount!);
+        }
+      }
+    } catch (e) {
+      chatListRes.value = ApiResponse.error(e.toString());
+    }
   }
 }
 
@@ -236,14 +258,17 @@ enum MessageType { text, image, file, udhaar, status }
 enum PaymentMethod { upi, bank }
 
 class ChatMessage {
-  final String? id; // server _id (null for optimistic)
+  final String? id;
   final String? text;
   final String? fileName;
   final String? imagePath;
+  final String? imageUrl;
+  final String? fileUrl;
   final bool isMe;
   final DateTime time;
   final MessageType type;
-  final bool isPending; // optimistic, not yet ack'd
+  final bool isPending;
+  final String? status; // 'sent' | 'delivered' | 'read'
 
   // Udhaar-specific
   final double? udhaarAmount;
@@ -255,15 +280,22 @@ class ChatMessage {
   final String? ifscCode;
   final String? accountHolder;
 
+  // Request Money (received)
+  final String? requestId;
+  final String? requestStatus; // 'pending' | 'accepted' | 'rejected'
+
   ChatMessage({
     this.id,
     this.text,
     this.fileName,
     this.imagePath,
+    this.imageUrl,
+    this.fileUrl,
     required this.isMe,
     required this.time,
     required this.type,
     this.isPending = false,
+    this.status = 'sent',
     this.udhaarAmount,
     this.udhaarDueDate,
     this.udhaarProtection,
@@ -272,57 +304,150 @@ class ChatMessage {
     this.accountNumber,
     this.ifscCode,
     this.accountHolder,
+    this.requestId,
+    this.requestStatus,
   });
 
-  /// Build from a socket "message:new" payload
-  // In your ChatMessage model
   factory ChatMessage.fromSocket(Map<String, dynamic> json, String myUserId) {
     final senderId = json['sender']?.toString() ?? '';
-    final receiverId =
-        json['receiverId']?.toString() ?? json['receiver']?.toString() ?? '';
+    final attachment = json['attachment'] as Map<String, dynamic>?;
+
+    String? serverImageUrl;
+    String? serverFileUrl;
+    String? fileNameFromAttachment;
+
+    if (attachment != null) {
+      final url = attachment['url']?.toString();
+      fileNameFromAttachment =
+          attachment['originalName']?.toString() ??
+          attachment['fileName']?.toString();
+
+      if (url != null && url.isNotEmpty) {
+        final fullUrl = url.startsWith('/')
+            ? 'http://192.168.1.15:5005$url'
+            : url;
+        if (json['messageType'] == 'image') {
+          serverImageUrl = fullUrl;
+        } else {
+          serverFileUrl = fullUrl;
+        }
+      }
+    }
+
+    // Handle request money payload embedded in message
+    final requestData = json['requestData'] as Map<String, dynamic>?;
+    double? udhaarAmount;
+    String? udhaarDueDate;
+    String? requestId;
+    String? requestStatus;
+    PaymentMethod? paymentMethod;
+    String? upiId;
+    String? accountNumber;
+    String? ifscCode;
+    String? accountHolder;
+
+    if (requestData != null) {
+      udhaarAmount = (requestData['amount'] as num?)?.toDouble();
+      udhaarDueDate = requestData['returnDate']?.toString();
+      requestId =
+          requestData['_id']?.toString() ?? requestData['id']?.toString();
+      requestStatus = requestData['status']?.toString() ?? 'pending';
+
+      final receiveMethod = requestData['receiveMethod']?.toString();
+      paymentMethod = receiveMethod == 'upi'
+          ? PaymentMethod.upi
+          : PaymentMethod.bank;
+
+      final receiveDetails = requestData['receiveDetails'] as Map?;
+      upiId = receiveDetails?['upiId']?.toString();
+      accountNumber = receiveDetails?['accountNumber']?.toString();
+      ifscCode = receiveDetails?['ifscCode']?.toString();
+      accountHolder = receiveDetails?['accountHolderName']?.toString();
+    }
+
+    final msgType = json['messageType']?.toString() ?? '';
 
     return ChatMessage(
       id: json['_id']?.toString(),
-      text: json['text']?.toString() ?? '',
-      imagePath: json['imageUrl']?.toString(), // if you support images later
+      text: json['text']?.toString(),
+      imageUrl: serverImageUrl,
+      fileUrl: serverFileUrl,
+      fileName: fileNameFromAttachment,
       isMe: senderId == myUserId,
       time: json['createdAt'] != null
           ? DateTime.tryParse(json['createdAt'].toString()) ?? DateTime.now()
           : DateTime.now(),
-      type: MessageType.text, // change logic if you support other types
+      type: msgType == 'udhaar'
+          ? MessageType.udhaar
+          : _parseMessageType(msgType),
       isPending: false,
+      status: json['status']?.toString() ?? 'sent',
+      udhaarAmount: udhaarAmount,
+      udhaarDueDate: udhaarDueDate,
+      paymentMethod: paymentMethod,
+      upiId: upiId,
+      accountNumber: accountNumber,
+      ifscCode: ifscCode,
+      accountHolder: accountHolder,
+      requestId: requestId,
+      requestStatus: requestStatus,
     );
   }
 
-  ChatMessage copyWith({bool? isPending, String? id}) => ChatMessage(
-    id: id ?? this.id,
-    text: text,
-    fileName: fileName,
-    imagePath: imagePath,
-    isMe: isMe,
-    time: time,
-    type: type,
-    isPending: isPending ?? this.isPending,
-    udhaarAmount: udhaarAmount,
-    udhaarDueDate: udhaarDueDate,
-    udhaarProtection: udhaarProtection,
-    paymentMethod: paymentMethod,
-    upiId: upiId,
-    accountNumber: accountNumber,
-    ifscCode: ifscCode,
-    accountHolder: accountHolder,
-  );
+  static MessageType _parseMessageType(String raw) {
+    switch (raw.toLowerCase()) {
+      case 'image':
+        return MessageType.image;
+      case 'file':
+        return MessageType.file;
+      case 'udhaar':
+        return MessageType.udhaar;
+      default:
+        return MessageType.text;
+    }
+  }
+
+  ChatMessage copyWith({
+    String? id,
+    bool? isPending,
+    String? imageUrl,
+    String? fileUrl,
+    String? fileName,
+    String? status,
+    String? requestStatus,
+  }) {
+    return ChatMessage(
+      id: id ?? this.id,
+      text: text,
+      fileName: fileName ?? this.fileName,
+      imagePath: imagePath,
+      imageUrl: imageUrl ?? this.imageUrl,
+      fileUrl: fileUrl ?? this.fileUrl,
+      isMe: isMe,
+      time: time,
+      type: type,
+      isPending: isPending ?? this.isPending,
+      status: status ?? this.status,
+      udhaarAmount: udhaarAmount,
+      udhaarDueDate: udhaarDueDate,
+      udhaarProtection: udhaarProtection,
+      paymentMethod: paymentMethod,
+      upiId: upiId,
+      accountNumber: accountNumber,
+      ifscCode: ifscCode,
+      accountHolder: accountHolder,
+      requestId: requestId,
+      requestStatus: requestStatus ?? this.requestStatus,
+    );
+  }
 }
 
-// ── Controller ────────────────────────────────────────────────────────────────
-
 // ─────────────────────────────────────────────────────────────────────────────
-// chat_controller.dart
-// Place in: lib/view_model/after_login/leUdhaar_controller/chat_controller.dart
+// CHAT CONTROLLER
 // ─────────────────────────────────────────────────────────────────────────────
 
 class ChatController extends GetxController {
-  // ── Reactive State ─────────────────────────────────────────────────────
+  // ── Reactive State ──────────────────────────────────────────────────────
   final messages = <ChatMessage>[].obs;
   final messageController = TextEditingController();
   final isConnected = false.obs;
@@ -330,42 +455,141 @@ class ChatController extends GetxController {
   final isSending = false.obs;
   final connectionStatus = 'Connecting…'.obs;
 
-  // ── User Data ───────────────────────────────────────────────────────────
-  late final String _jwtToken;
-  late final String _myUserId;
-  late final String otherUserId; // This is receiverId
-  late final String _otherName;
-  late final String _otherInitials;
+  // ── Online / Offline (read from SocketService) ──────────────────────────
+  final isOtherUserOnline = false.obs;
+  final otherUserLastSeen = Rxn<DateTime>();
 
-  String get otherName => _otherName;
-  String get otherInitials => _otherInitials;
-
-  // ── Add these new reactive fields ──────────────────────────────────────
+  // ── Pagination ──────────────────────────────────────────────────────────
   final isLoadingHistory = false.obs;
   final isLoadingMore = false.obs;
   final hasMore = true.obs;
   int _currentPage = 1;
   static const int _pageLimit = 50;
 
-  // ── Replace _seedDemoMessages() call in onInit() with: ─────────────────
+  // ── User Data ────────────────────────────────────────────────────────────
+  late final String _jwtToken;
+  late final String _myUserId;
+  late String otherUserId;
+  late final String _otherName;
+  late final String _otherInitials;
+
+  String get otherName => _otherName;
+  String get otherInitials => _otherInitials;
+
+  // ── Request Money ────────────────────────────────────────────────────────
+  final isSendingRequest = false.obs;
+
+  // ── Repos ────────────────────────────────────────────────────────────────
+  final _repo = ProfileRepo();
+  final clearAllChatRes = Rx<ApiResponse<Map<String, dynamic>>?>(null);
+  final msgRes = Rx<ApiResponse<Map<String, dynamic>>?>(null);
+
+  // ── Socket (own instance for chat room) ─────────────────────────────────
+  IO.Socket? _socket;
+  bool _hasJoined = false;
+
+  // ── SocketService (shared, for presence + unread) ────────────────────────
+  late final SocketService _socketService;
+
+  static const String _serverUrl = 'http://192.168.1.15:5005';
+
+  // ─────────────────────────────────────────────────────────────────────────
   @override
   void onInit() {
     super.onInit();
+    _socketService = Get.find<SocketService>();
     _resolveIdentities();
-    _loadChatHistory(); // ← replaces _seedDemoMessages()
+    _loadChatHistory();
     _initSocket();
+    _listenToPresence();
   }
 
-  // ── Add this method ────────────────────────────────────────────────────
+  @override
+  void onClose() {
+    _debug('onClose called');
+    _leaveChat();
+    _socket?.dispose();
+    messageController.dispose();
+    super.onClose();
+  }
+
+  // ── Presence: watch SocketService reactive map ──────────────────────────
+  void _listenToPresence() {
+    if (otherUserId.isEmpty) return;
+
+    // Initial check from cache
+    _syncPresence();
+
+    // Also request via socket after connect
+    ever(isConnected, (bool connected) {
+      if (connected) {
+        Future.delayed(const Duration(milliseconds: 500), () {
+          _socketService.checkUserStatus(otherUserId, (isOnline, lastSeen) {
+            isOtherUserOnline.value = isOnline;
+            otherUserLastSeen.value = lastSeen;
+          });
+        });
+      }
+    });
+
+    // Reactively update whenever SocketService.onlineUsers changes
+    ever(_socketService.onlineUsers, (_) => _syncPresence());
+    ever(_socketService.lastSeenMap, (_) => _syncLastSeen());
+  }
+
+  void _syncPresence() {
+    final online = _socketService.onlineUsers[otherUserId];
+    if (online != null) {
+      isOtherUserOnline.value = online;
+    }
+  }
+
+  void _syncLastSeen() {
+    final lastSeen = _socketService.lastSeenMap[otherUserId];
+    if (lastSeen != null) {
+      otherUserLastSeen.value = lastSeen;
+    }
+  }
+
+  // ── Resolve IDs ──────────────────────────────────────────────────────────
+  void _resolveIdentities() {
+    final String? token = AuthStorage.getToken();
+    final user = AuthStorage.getUser();
+
+    _jwtToken = token ?? '';
+    _myUserId = user?.id ?? '';
+
+    final args = Get.arguments;
+    if (args is Map<String, dynamic>) {
+      _otherName = args["name"] ?? 'Unknown User';
+      _otherInitials = _buildInitials(_otherName);
+      otherUserId = args["id"] ?? '';
+    } else {
+      _otherName = 'Unknown';
+      _otherInitials = 'U';
+      otherUserId = '';
+    }
+
+    _debug('Resolved: myUserId=$_myUserId, otherUserId=$otherUserId');
+  }
+
+  // ── History ──────────────────────────────────────────────────────────────
   Future<void> _loadChatHistory({bool refresh = false}) async {
     if (otherUserId.isEmpty) return;
+
     if (refresh) {
       _currentPage = 1;
       hasMore.value = true;
+      messages.clear();
     }
-    if (!hasMore.value) return;
 
-    refresh ? isLoadingHistory.value = true : isLoadingMore.value = true;
+    if (!hasMore.value && !refresh) return;
+
+    if (refresh) {
+      isLoadingHistory.value = true;
+    } else {
+      isLoadingMore.value = true;
+    }
 
     try {
       final token = AuthStorage.getToken();
@@ -376,63 +600,55 @@ class ChatController extends GetxController {
           '$_serverUrl/api/user/chats/with/$otherUserId/messages'
           '?page=$_currentPage&limit=$_pageLimit';
 
-      _debug('Fetching chat history: $url');
       final response = await dio.get(url);
-
       final model = ChatHistoryResModel.fromJson(
         response.data as Map<String, dynamic>,
       );
 
       if (model.success == true && model.data != null) {
-        final fetched = model.data!.messages
-            .map(
-              (m) => ChatMessage(
-                id: m.id,
-                text: m.text,
-                isMe: m.sender == _myUserId,
-                time: m.createdAt ?? DateTime.now(),
-                type: _mapMessageType(m.messageType),
-                isPending: false,
-              ),
-            )
-            .toList();
-
-        // History comes newest-first from the API; reverse so oldest is at top
-        final ordered = fetched.reversed.toList();
+        final fetched = model.data!.messages.map((m) {
+          return ChatMessage(
+            id: m.id,
+            text: m.text,
+            isMe: m.sender == _myUserId,
+            time: m.createdAt ?? DateTime.now(),
+            type: _mapMessageType(m.messageType),
+            isPending: false,
+            status: m.status ?? 'sent',
+            imageUrl: _extractUrl(m, 'image'),
+            fileUrl: _extractUrl(m, 'file'),
+            fileName:
+                m.attachment?['originalName']?.toString() ??
+                m.attachment?['fileName']?.toString(),
+          );
+        }).toList();
 
         if (refresh) {
-          // Replace everything except optimistic (pending) messages
-          final pending = messages.where((m) => m.isPending).toList();
-          messages
-            ..clear()
-            ..addAll(ordered)
-            ..addAll(pending);
+          messages.assignAll(fetched.reversed.toList());
         } else {
-          // Prepend older page at the top (load-more scenario)
-          messages.insertAll(0, ordered);
+          messages.insertAll(0, fetched.reversed.toList());
         }
 
+        _sortMessages();
         hasMore.value = model.data!.pagination?.hasMore ?? false;
-        _currentPage++;
-        _debug(
-          'History loaded: ${fetched.length} msgs, page=$_currentPage, hasMore=${hasMore.value}',
-        );
+        if (hasMore.value) _currentPage++;
       }
-    } on DioException catch (e) {
-      _debug('History fetch error: ${e.message}');
-      Get.snackbar('Error', 'Could not load chat history');
     } catch (e) {
-      _debug('History unexpected error: $e');
+      _debug('History error: $e');
     } finally {
       isLoadingHistory.value = false;
       isLoadingMore.value = false;
     }
   }
 
-  /// Pull-to-refresh (called from UI)
+  String? _extractUrl(dynamic m, String type) {
+    final url = m.attachment?['url']?.toString();
+    if (url == null || url.isEmpty) return null;
+    return url.startsWith('/') ? '$_serverUrl$url' : url;
+  }
+
   Future<void> refreshHistory() => _loadChatHistory(refresh: true);
 
-  /// Load older messages when user scrolls to the top
   Future<void> loadMoreHistory() async {
     if (isLoadingMore.value || !hasMore.value) return;
     await _loadChatHistory(refresh: false);
@@ -444,87 +660,24 @@ class ChatController extends GetxController {
         return MessageType.image;
       case 'file':
         return MessageType.file;
+      case 'udhaar':
+        return MessageType.udhaar;
       default:
         return MessageType.text;
     }
   }
 
-  // delete chat and msg
-  //
-  // ====================================================
-
-  final _repo = ProfileRepo();
-
-  final clearAllChatRes = Rx<ApiResponse<Map<String, dynamic>>?>(null);
-  Future<void> clearAllChat(String otherUserId) async {
-    clearAllChatRes.value = ApiResponse.loading();
-    clearAllChatRes.value = await _repo.clearAllChats(otherUserId);
+  void _sortMessages() {
+    messages.sort((a, b) => a.time.compareTo(b.time));
   }
 
-  final msgRes = Rx<ApiResponse<Map<String, dynamic>>?>(null);
-  Future<void> msgDelete(String msgId) async {
-    msgRes.value = ApiResponse.loading();
-    msgRes.value = await _repo.deleteChatMsg(msgId);
-  }
-
-  // ── Socket ─────────────────────────────────────────────────────────────
-  IO.Socket? _socket;
-  bool _hasJoined = false;
-
-  static const String _serverUrl =
-      'http://192.168.1.17:5005'; // Change as needed
-
-  @override
-  void onClose() {
-    _debug('onClose called');
-    _leaveChat();
-    _socket?.dispose();
-    messageController.dispose();
-    super.onClose();
-  }
-
-  // ── Resolve User IDs ───────────────────────────────────────────────────
-  void _resolveIdentities() {
-    final String? token = AuthStorage.getToken();
-    final User? me = AuthStorage.getUser();
-
-    _jwtToken = token ?? '';
-    _myUserId = me?.id ?? '';
-    _debug(
-      'Resolved auth: token=${_jwtToken.isNotEmpty ? 'present(${_jwtToken.length})' : 'missing'}, myUserId=$_myUserId',
-    );
-
-    final args = Get.arguments;
-    if (args is Map<String, dynamic>) {
-      _otherName = args["name"] ?? 'Unknown User';
-      _otherInitials = _buildInitials(_otherName);
-      otherUserId = args["id"] ?? '';
-      _debug(
-        'Resolved chat user: otherUserId=$otherUserId, otherName=$_otherName',
-      );
-
-      if (otherUserId.isEmpty) {
-        debugPrint('⚠️ Warning: otherUserId (receiverId) is empty');
-      }
-    } else {
-      _otherName = 'Unknown';
-
-      otherUserId = '';
-      _debug('Warning: Get.arguments is not LeUdhaarContact');
-    }
-  }
-
-  // ── Initialize Socket ──────────────────────────────────────────────────
+  // ── Socket Init ──────────────────────────────────────────────────────────
   void _initSocket() {
     if (_jwtToken.isEmpty || otherUserId.isEmpty) {
       connectionStatus.value = 'Auth data missing';
-      _debug(
-        'Socket init skipped: jwtTokenEmpty=${_jwtToken.isEmpty}, otherUserIdEmpty=${otherUserId.isEmpty}',
-      );
       return;
     }
 
-    _debug('Socket init: server=$_serverUrl, receiverId=$otherUserId');
     _socket = IO.io(
       _serverUrl,
       IO.OptionBuilder()
@@ -537,7 +690,6 @@ class ChatController extends GetxController {
           .build(),
     );
 
-    // Connection Events
     _socket?.onConnect((_) {
       isConnected.value = true;
       connectionStatus.value = 'Connected';
@@ -549,26 +701,11 @@ class ChatController extends GetxController {
       isConnected.value = false;
       _hasJoined = false;
       connectionStatus.value = 'Disconnected';
-      _debug('Socket disconnected: reason=$reason');
     });
 
-    _socket?.onReconnect((attempt) {
+    _socket?.onReconnect((_) {
       connectionStatus.value = 'Reconnected';
-      _debug('Socket reconnected: attempt=$attempt, id=${_socket?.id}');
       _joinChat();
-    });
-
-    _socket?.onReconnectAttempt((attempt) {
-      _debug('Socket reconnect attempt: $attempt');
-    });
-
-    _socket?.onReconnectError((error) {
-      _debug('Socket reconnect error: $error');
-    });
-
-    _socket?.onReconnectFailed((_) {
-      connectionStatus.value = 'Reconnect failed';
-      _debug('Socket reconnect failed');
     });
 
     _socket?.onConnectError((error) {
@@ -577,106 +714,194 @@ class ChatController extends GetxController {
       _debug('Socket connect error: $error');
     });
 
-    _socket?.onError((error) {
-      _debug('Socket error: $error');
-    });
-
-    // New Message
+    // ── New Message ─────────────────────────────────────────────────────
     _socket?.on('message:new', (raw) {
-      _debug('Socket received message:new raw=$raw');
-
-      if (raw == null) {
-        _debug('message:new ignored: payload is null');
-        return;
-      }
+      _debug('message:new received');
+      if (raw == null) return;
 
       Map<String, dynamic> data;
-
       if (raw is Map) {
         data = Map<String, dynamic>.from(raw);
       } else if (raw is String) {
         try {
           data = jsonDecode(raw) as Map<String, dynamic>;
-        } catch (e) {
-          _debug('Failed to decode string payload: $e');
+        } catch (_) {
           return;
         }
       } else {
-        _debug('message:new ignored: unsupported type ${raw.runtimeType}');
         return;
       }
 
       try {
         final msg = ChatMessage.fromSocket(data, _myUserId);
 
-        if (!messages.any(
-          (m) => m.id == msg.id && msg.id != null && msg.id!.isNotEmpty,
-        )) {
+        // Remove matching pending optimistic message
+        messages.removeWhere(
+          (m) =>
+              m.isPending &&
+              m.isMe &&
+              ((msg.type == MessageType.image && m.type == MessageType.image) ||
+                  (msg.type == MessageType.file && m.type == MessageType.file)),
+        );
+
+        if (!messages.any((m) => m.id == msg.id && msg.id != null)) {
           messages.add(msg);
-          _debug('message:new added: id=${msg.id}, isMe=${msg.isMe}');
-        } else {
-          _debug('message:new ignored duplicate');
         }
 
+        _sortMessages();
         _markRead();
-      } catch (e, stack) {
-        _debug('Error parsing message:new: $e\n$stack');
-        Get.snackbar('Parse Error', 'Failed to parse incoming message');
+
+        // Clear unread in SocketService for this chat
+        if (!msg.isMe) {
+          // We'll find chatId from the message or from the join ack
+          // SocketService unread cleared via message:read ack from server
+        }
+      } catch (e) {
+        _debug('Parse error in message:new: $e');
       }
     });
 
-    // Typing
+    // ── Message Read (update tick status) ─────────────────────────────
+    // Server emits to chat room: message:read
+    // Payload: { chatId, readBy, readAt, messageIds }
+    _socket?.on('message:read', (raw) {
+      _debug('message:read event: $raw');
+      if (raw is Map) {
+        final readBy = raw['readBy']?.toString() ?? '';
+        final messageIds = raw['messageIds'];
+
+        if (readBy == otherUserId) {
+          // Other user read our messages → update status to 'read'
+          if (messageIds is List) {
+            for (final id in messageIds) {
+              final idx = messages.indexWhere((m) => m.id == id.toString());
+              if (idx != -1) {
+                messages[idx] = messages[idx].copyWith(status: 'read');
+              }
+            }
+          } else {
+            // Mark all sent messages as read
+            for (int i = 0; i < messages.length; i++) {
+              if (messages[i].isMe && messages[i].status != 'read') {
+                messages[i] = messages[i].copyWith(status: 'read');
+              }
+            }
+          }
+          messages.refresh();
+        }
+      }
+    });
+
+    // ── Request Money received ─────────────────────────────────────────
+    // When someone sends you a money request, server broadcasts it
+    // as a message with messageType='udhaar' via message:new,
+    // OR as a dedicated 'request:new' event.
+    // We handle both here.
+    _socket?.on('request:new', (raw) {
+      _debug('request:new received: $raw');
+      if (raw == null) return;
+
+      try {
+        Map<String, dynamic> data;
+        if (raw is Map) {
+          data = Map<String, dynamic>.from(raw);
+        } else if (raw is String) {
+          data = jsonDecode(raw) as Map<String, dynamic>;
+        } else {
+          return;
+        }
+
+        final requestData = data['request'] as Map<String, dynamic>? ?? data;
+        final senderId =
+            requestData['requestBy']?.toString() ??
+            requestData['sender']?.toString() ??
+            '';
+
+        // Only show if it's from the current chat partner
+        if (senderId != otherUserId && senderId != _myUserId) return;
+
+        final amount = (requestData['amount'] as num?)?.toDouble();
+        final returnDate = requestData['returnDate']?.toString();
+        final receiveMethod = requestData['receiveMethod']?.toString();
+        final receiveDetails = requestData['receiveDetails'] as Map?;
+        final requestId =
+            requestData['_id']?.toString() ?? requestData['id']?.toString();
+
+        final paymentMethod = receiveMethod == 'upi'
+            ? PaymentMethod.upi
+            : PaymentMethod.bank;
+
+        final msg = ChatMessage(
+          id: requestId,
+          isMe: senderId == _myUserId,
+          time: DateTime.now(),
+          type: MessageType.udhaar,
+          udhaarAmount: amount,
+          udhaarDueDate: returnDate,
+          udhaarProtection: requestData['repaymentMode']?.toString(),
+          paymentMethod: paymentMethod,
+          upiId: receiveDetails?['upiId']?.toString(),
+          accountNumber: receiveDetails?['accountNumber']?.toString(),
+          ifscCode: receiveDetails?['ifscCode']?.toString(),
+          accountHolder: receiveDetails?['accountHolderName']?.toString(),
+          requestId: requestId,
+          requestStatus: requestData['status']?.toString() ?? 'pending',
+          isPending: false,
+          status: 'sent',
+        );
+
+        if (!messages.any(
+          (m) => m.requestId == requestId && requestId != null,
+        )) {
+          messages.add(msg);
+          _sortMessages();
+        }
+      } catch (e) {
+        _debug('request:new parse error: $e');
+      }
+    });
+
+    // ── Typing ──────────────────────────────────────────────────────────
     _socket?.on('typing:start', (raw) {
-      _debug('Socket received typing:start raw=$raw');
       if (raw is Map && raw['userId']?.toString() != _myUserId) {
         isOtherTyping.value = true;
-        _debug('Typing started by userId=${raw['userId']}');
       }
     });
 
     _socket?.on('typing:stop', (raw) {
-      _debug('Socket received typing:stop raw=$raw');
       if (raw is Map && raw['userId']?.toString() != _myUserId) {
         isOtherTyping.value = false;
-        _debug('Typing stopped by userId=${raw['userId']}');
       }
     });
 
-    // Error Handling
+    // ── Errors ──────────────────────────────────────────────────────────
     _socket?.on('chat:error', (raw) {
-      _debug('Socket received chat:error raw=$raw');
       final msg = raw is Map
           ? (raw['message']?.toString() ?? 'Error')
           : 'Socket error';
       Get.snackbar('Chat Error', msg, snackPosition: SnackPosition.TOP);
     });
 
-    _debug('Socket connect requested');
     _socket?.connect();
   }
 
-  // ── Chat Room Management ───────────────────────────────────────────────
+  // ── Chat Room ─────────────────────────────────────────────────────────────
   void _joinChat() {
-    final socket = _socket;
-    if (_hasJoined || otherUserId.isEmpty || socket == null) {
-      _debug(
-        'chat:join skipped: hasJoined=$_hasJoined, otherUserIdEmpty=${otherUserId.isEmpty}, socketReady=${socket != null}',
-      );
-      return;
-    }
+    if (_hasJoined || otherUserId.isEmpty || _socket == null) return;
 
-    _debug('Emit chat:join receiverId=$otherUserId');
-    socket.emitWithAck(
+    _socket?.emitWithAck(
       'chat:join',
-      {'receiverId': otherUserId}, // ← Changed to receiverId
+      {'receiverId': otherUserId},
       ack: (res) {
-        _debug('Ack chat:join res=$res');
         if (res is Map && res['success'] == true) {
           _hasJoined = true;
-          _debug('chat:join success');
           _markRead();
-        } else {
-          _debug('chat:join failed or unexpected ack');
+          // Also clear unread count in SocketService
+          final chatId = res['data']?['chatId']?.toString();
+          if (chatId != null) {
+            _socketService.clearUnread(chatId);
+          }
+          _debug('chat:join success, chatId=$chatId');
         }
       },
     );
@@ -684,179 +909,296 @@ class ChatController extends GetxController {
 
   void _leaveChat() {
     if (_hasJoined && otherUserId.isNotEmpty) {
-      _debug('Emit chat:leave receiverId=$otherUserId');
-      _socket?.emit('chat:leave', {'receiverId': otherUserId}); // ← receiverId
+      _socket?.emit('chat:leave', {'receiverId': otherUserId});
     }
   }
 
   void _markRead() {
     if (otherUserId.isNotEmpty) {
-      _debug('Emit message:read receiverId=$otherUserId');
-      _socket?.emit('message:read', {
-        'receiverId': otherUserId,
-      }); // ← receiverId
+      _socket?.emit('message:read', {'receiverId': otherUserId});
     }
   }
 
-  // ── Typing Indicator ───────────────────────────────────────────────────
+  // ── Typing ───────────────────────────────────────────────────────────────
   void onTypingChanged(String value) {
     if (otherUserId.isEmpty) return;
     final event = value.isNotEmpty ? 'typing:start' : 'typing:stop';
-    _debug('Emit $event receiverId=$otherUserId');
     _socket?.emit(event, {'receiverId': otherUserId});
   }
 
-  // ── Send Text Message ──────────────────────────────────────────────────
+  // ── Send Text ────────────────────────────────────────────────────────────
   void sendText() {
     final text = messageController.text.trim();
-    final socket = _socket;
-    if (text.isEmpty || otherUserId.isEmpty || socket == null) {
-      _debug(
-        'message:send skipped: textEmpty=${text.isEmpty}, otherUserIdEmpty=${otherUserId.isEmpty}, socketReady=${socket != null}',
-      );
-      return;
-    }
+    if (text.isEmpty || otherUserId.isEmpty || _socket == null) return;
+
+    // Use a unique local id to find the optimistic message later
+    // even if the list gets sorted
+    final tempId = 'temp_${DateTime.now().millisecondsSinceEpoch}';
 
     final optimistic = ChatMessage(
+      id: tempId,
       text: text,
       isMe: true,
       time: DateTime.now(),
       type: MessageType.text,
       isPending: true,
+      status: 'sent',
     );
 
     messages.add(optimistic);
-    _debug(
-      'Optimistic message added: textLength=${text.length}, total=${messages.length}, connected=${isConnected.value}',
-    );
     messageController.clear();
-    onTypingChanged(''); // stop typing
+    onTypingChanged('');
 
-    _debug(
-      'Emit message:send receiverId=$otherUserId, textLength=${text.length}',
-    );
-    socket.emitWithAck(
+    _socket?.emitWithAck(
       'message:send',
-      {
-        'receiverId': otherUserId, // ← Changed to receiverId
-        'text': text,
-      },
+      {'receiverId': otherUserId, 'text': text, 'messageType': 'text'},
       ack: (res) {
-        _debug('Ack message:send res=$res');
-        if (res is Map && res['success'] == true) {
-          final serverData = res['data'] as Map<String, dynamic>?;
-          if (serverData != null) {
-            final index = messages.indexOf(optimistic);
-            if (index != -1) {
-              messages[index] = optimistic.copyWith(
-                id: serverData['_id']?.toString(),
-                isPending: false,
-              );
-              _debug(
-                'message:send success: serverId=${serverData['_id']}, index=$index',
-              );
-            } else {
-              _debug(
-                'message:send ack received but optimistic message not found',
-              );
-            }
-          } else {
-            _debug('message:send success but data is null');
+        _debug('message:send ack raw => $res (type: ${res.runtimeType})');
+
+        // socket.io ack can come as List or Map — normalize it
+        Map<String, dynamic>? response;
+
+        if (res is Map) {
+          response = Map<String, dynamic>.from(res);
+        } else if (res is List && res.isNotEmpty && res[0] is Map) {
+          response = Map<String, dynamic>.from(res[0] as Map);
+        }
+
+        if (response == null) {
+          _debug(
+            'Ack is null or unrecognized format — keeping message as pending',
+          );
+          // Don't remove it — treat as sent (server may have received it)
+          final idx = messages.indexWhere((m) => m.id == tempId);
+          if (idx != -1) {
+            messages[idx] = optimistic.copyWith(isPending: false, id: tempId);
+          }
+          return;
+        }
+
+        final success = response['success'] == true;
+        _debug('message:send ack success=$success');
+
+        // Find by tempId (safe even after sort)
+        final idx = messages.indexWhere((m) => m.id == tempId);
+
+        if (success) {
+          final serverData = response['data'];
+
+          Map<String, dynamic>? dataMap;
+          if (serverData is Map) {
+            dataMap = Map<String, dynamic>.from(serverData);
+          }
+
+          if (idx != -1) {
+            messages[idx] = optimistic.copyWith(
+              id: dataMap?['_id']?.toString() ?? tempId,
+              isPending: false,
+              status: 'sent',
+            );
+            _debug('Optimistic replaced with serverId=${dataMap?['_id']}');
           }
         } else {
-          messages.remove(optimistic);
-          _debug('message:send failed: optimistic message removed');
-          Get.snackbar('Failed', 'Could not send message');
+          final errMsg =
+              response['message']?.toString() ?? 'Could not send message';
+          _debug('message:send failed: $errMsg');
+
+          if (idx != -1) messages.removeAt(idx);
+
+          Get.snackbar(
+            'Failed',
+            errMsg,
+            snackPosition: SnackPosition.TOP,
+            backgroundColor: const Color(0xFFE53935),
+            colorText: Colors.white,
+          );
         }
       },
     );
   }
-  // ── Send image ───────────────────────────────────────────────────────────────
 
-  Future<void> sendImage() async {
-    final picker = ImagePicker();
-    final image = await picker.pickImage(source: ImageSource.gallery);
-    if (image == null) return;
+  // ── Upload Attachment ─────────────────────────────────────────────────────
+  Future<String?> _uploadAttachment(File file, String type) async {
+    try {
+      final token = AuthStorage.getToken();
+      final dio = Dio();
+      dio.options.headers['Authorization'] = 'Bearer $token';
 
-    messages.add(
-      ChatMessage(
-        imagePath: image.path,
-        isMe: true,
-        time: DateTime.now(),
-        type: MessageType.image,
-        isPending: true,
-      ),
-    );
-    // TODO: upload to server & send URL via socket/REST
-  }
+      final formData = FormData.fromMap({
+        'files': await MultipartFile.fromFile(
+          file.path,
+          filename: p.basename(file.path),
+        ),
+        'type': type,
+      });
 
-  // ── Send file ────────────────────────────────────────────────────────────────
+      final url = '$_serverUrl/api/user/chats/with/$otherUserId/attachments';
+      final response = await dio.post(url, data: formData);
 
-  Future<void> sendFile() async {
-    final result = await FilePicker.pickFiles();
-    if (result == null) return;
-
-    messages.add(
-      ChatMessage(
-        fileName: result.files.single.name,
-        isMe: true,
-        time: DateTime.now(),
-        type: MessageType.file,
-        isPending: true,
-      ),
-    );
-    // TODO: upload to server
-  }
-
-  // ── Send Udhaar request ──────────────────────────────────────────────────────
-
-  void sendUdhaarRequest({
-    required double amount,
-    required String dueDate,
-    required String protection,
-    required PaymentMethod paymentMethod,
-    String? upiId,
-    String? accountNumber,
-    String? ifscCode,
-    String? accountHolder,
-  }) {
-    messages.add(
-      ChatMessage(
-        isMe: true,
-        time: DateTime.now(),
-        type: MessageType.udhaar,
-        udhaarAmount: amount,
-        udhaarDueDate: dueDate,
-        udhaarProtection: protection,
-        paymentMethod: paymentMethod,
-        upiId: upiId,
-        accountNumber: accountNumber,
-        ifscCode: ifscCode,
-        accountHolder: accountHolder,
-      ),
-    );
-
-    messages.add(
-      ChatMessage(
-        isMe: false,
-        time: DateTime.now(),
-        type: MessageType.status,
-        text: 'Waiting for $_otherName to accept the terms…',
-      ),
-    );
-
-    if (otherUserId.isNotEmpty) {
-      final summary =
-          '[UDHAAR_REQUEST] ₹$amount | due:$dueDate | via:${paymentMethod.name}';
-      _socket?.emitWithAck('message:send', {
-        'chatId': otherUserId,
-        'text': summary,
-      }, ack: (_) {});
+      if (response.data is Map<String, dynamic>) {
+        final res = response.data as Map<String, dynamic>;
+        if (res['success'] == true && res['data'] != null) {
+          final messagesList = res['data']['messages'] as List<dynamic>?;
+          if (messagesList != null && messagesList.isNotEmpty) {
+            final msg = messagesList.first as Map<String, dynamic>;
+            final attachment = msg['attachment'] as Map<String, dynamic>?;
+            if (attachment != null) {
+              String? fileUrl = attachment['url']?.toString();
+              if (fileUrl != null && fileUrl.startsWith('/')) {
+                fileUrl = '$_serverUrl$fileUrl';
+              }
+              return fileUrl;
+            }
+          }
+        }
+      }
+      return null;
+    } catch (e) {
+      _debug('Upload error: $e');
+      return null;
     }
   }
 
-  // ── Helpers ──────────────────────────────────────────────────────────────────
+  Future<void> sendImage() async {
+    final picker = ImagePicker();
+    final pickedFile = await picker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 80,
+    );
+    if (pickedFile == null) return;
 
+    isSending.value = true;
+    await _uploadAttachment(File(pickedFile.path), 'image');
+    isSending.value = false;
+  }
+
+  Future<void> sendFile() async {
+    final result = await FilePicker.pickFiles(allowMultiple: false);
+    if (result == null || result.files.isEmpty) return;
+
+    isSending.value = true;
+    await _uploadAttachment(File(result.files.single.path!), 'file');
+    isSending.value = false;
+  }
+
+  // ── Request Money (Udhaar) ────────────────────────────────────────────────
+  //
+  // Flow:
+  //   1. User fills form → calls sendUdhaarRequest()
+  //   2. We call REST API to create the request
+  //   3. Server broadcasts 'request:new' or 'message:new' (messageType=udhaar)
+  //      to the other user via socket
+  //   4. We add an optimistic message locally; socket confirms it
+  //
+  Future<void> sendUdhaarRequest({
+    required int amount,
+    required String returnDate,
+    required String repaymentMode,
+    required String receiveMethod,
+    String? upiId,
+    String? accountHolderName,
+    String? accountNumber,
+    String? ifscCode,
+  }) async {
+    if (isSendingRequest.value) return;
+    isSendingRequest.value = true;
+
+    // Optimistic bubble
+    final optimistic = ChatMessage(
+      isMe: true,
+      time: DateTime.now(),
+      type: MessageType.udhaar,
+      isPending: true,
+      status: 'sent',
+      udhaarAmount: amount.toDouble(),
+      udhaarDueDate: returnDate,
+      udhaarProtection: repaymentMode,
+      paymentMethod: receiveMethod == 'upi'
+          ? PaymentMethod.upi
+          : PaymentMethod.bank,
+      upiId: upiId,
+      accountNumber: accountNumber,
+      ifscCode: ifscCode,
+      accountHolder: accountHolderName,
+      requestStatus: 'pending',
+    );
+
+    messages.add(optimistic);
+    _sortMessages();
+
+    try {
+      final token = AuthStorage.getToken();
+      final dio = Dio();
+      dio.options.headers['Authorization'] = 'Bearer $token';
+
+      final body = {
+        'requestTo': otherUserId,
+        'amount': amount,
+        'reason': 'Udhaar Request from Chat',
+        'returnDate': returnDate,
+        'repaymentMode': repaymentMode,
+        'receiveMethod': receiveMethod,
+        'receiveDetails': receiveMethod == 'upi'
+            ? {'upiId': upiId}
+            : {
+                'accountHolderName': accountHolderName,
+                'accountNumber': accountNumber,
+                'ifscCode': ifscCode,
+              },
+      };
+
+      final response = await dio.post(
+        '$_serverUrl/api/user/leudhaar/request-money',
+        data: body,
+      );
+
+      final res = response.data as Map<String, dynamic>?;
+
+      if (res?['success'] == true) {
+        final requestId =
+            res?['data']?['_id']?.toString() ??
+            res?['data']?['request']?['_id']?.toString();
+
+        // Confirm optimistic message
+        final idx = messages.indexOf(optimistic);
+        if (idx != -1) {
+          messages[idx] = optimistic.copyWith(
+            id: requestId,
+            isPending: false,
+            requestStatus: 'pending',
+          );
+        }
+
+        _debug('Request money sent: id=$requestId');
+      } else {
+        messages.remove(optimistic);
+        Get.snackbar(
+          'Failed',
+          res?['message']?.toString() ?? 'Could not send request',
+          snackPosition: SnackPosition.TOP,
+        );
+      }
+    } catch (e) {
+      messages.remove(optimistic);
+      _debug('sendUdhaarRequest error: $e');
+      Get.snackbar('Error', e.toString(), snackPosition: SnackPosition.TOP);
+    } finally {
+      isSendingRequest.value = false;
+    }
+  }
+
+  // ── Delete / Clear ────────────────────────────────────────────────────────
+  Future<void> clearAllChat(String otherUserId) async {
+    clearAllChatRes.value = ApiResponse.loading();
+    clearAllChatRes.value = await _repo.clearAllChats(otherUserId);
+  }
+
+  Future<void> msgDelete(String msgId) async {
+    msgRes.value = ApiResponse.loading();
+    msgRes.value = await _repo.deleteChatMsg(msgId);
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
   String _buildInitials(String name) {
     final parts = name.trim().split(RegExp(r'\s+'));
     if (parts.isEmpty) return '?';

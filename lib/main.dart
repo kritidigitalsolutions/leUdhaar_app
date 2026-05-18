@@ -5,6 +5,8 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:leudaar_app/res/app_colors.dart';
 import 'package:leudaar_app/routes/app_pages.dart';
 import 'package:leudaar_app/routes/app_routes.dart';
+import 'package:leudaar_app/utils/service/local_storage/auth_storage.dart';
+import 'package:leudaar_app/utils/service/socket_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -12,6 +14,11 @@ void main() async {
   await Hive.initFlutter();
 
   await Hive.openBox('authBox');
+
+  final token = AuthStorage.getToken();
+  final user = AuthStorage.getUser();
+
+  await Get.putAsync(() => SocketService().init(token ?? '', user?.id ?? ''));
 
   // System UI Configuration (Status Bar & Navigation Bar)
   SystemChrome.setSystemUIOverlayStyle(

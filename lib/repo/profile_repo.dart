@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:leudaar_app/data/api_response.dart';
 import 'package:leudaar_app/data/network/network_api_service.dart';
-import 'package:leudaar_app/models/response_model/profile_models/chat_history_res_model.dart';
 import 'package:leudaar_app/models/response_model/profile_models/chat_list_res_model.dart';
 import 'package:leudaar_app/models/response_model/profile_models/dashboard_res_model.dart';
 import 'package:leudaar_app/res/app_urls.dart';
