@@ -19,7 +19,7 @@ class SocketService extends GetxService {
   /// Total unread across all chats
   final totalUnread = 0.obs;
 
-  static const String serverUrl = 'http://192.168.1.15:5005';
+  static const String serverUrl = 'http://192.168.1.19:5005';
 
   String? token;
   String? myUserId;

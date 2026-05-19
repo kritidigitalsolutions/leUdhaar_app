@@ -57,4 +57,22 @@ class LeudhaarRepo {
       return ApiResponse.error(e.toString());
     }
   }
+
+  // approvel and reject
+
+  Future<ApiResponse<Map<String, dynamic>>> rejectApprovel(
+    String requestId,
+    String status,
+  ) async {
+    try {
+      final token = AuthStorage.getToken();
+      _api.setToken(token ?? '');
+      final uri = "${AppUrls.requestMoney}/$requestId/respond";
+      final res = await _api.pacthApi(uri, {"status": status});
+
+      return ApiResponse.completed(res);
+    } catch (e) {
+      return ApiResponse.error(e.toString());
+    }
+  }
 }

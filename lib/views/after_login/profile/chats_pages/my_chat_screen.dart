@@ -8,13 +8,14 @@ import 'package:leudaar_app/models/request_model/leUdhaar_request/leudhaarReq_mo
 import 'package:leudaar_app/repo/leUdhaar_repo.dart';
 
 import 'package:leudaar_app/res/app_colors.dart';
+import 'package:leudaar_app/utils/custom_button.dart';
 import 'package:leudaar_app/utils/custom_snackbar.dart';
 import 'package:leudaar_app/utils/service/socket_service.dart';
 import 'package:leudaar_app/utils/textstyle.dart';
 import 'package:leudaar_app/view_model/after_login/leUdhaar_controller/chat_controller.dart';
 
 class ChatDetailScreen extends StatefulWidget {
-  ChatDetailScreen({super.key});
+  const ChatDetailScreen({super.key});
 
   @override
   State<ChatDetailScreen> createState() => _ChatDetailScreenState();
@@ -301,7 +302,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
   Widget _buildMessage(BuildContext context, ChatMessage msg) {
     if (msg.type == MessageType.udhaar) {
-      return _UdhaarCardBubble(msg: msg);
+      return _UdhaarCardBubble(msg: msg, controller: controller);
     }
     if (msg.type == MessageType.status) {
       return _WaitingPill(text: msg.text ?? '');
@@ -542,31 +543,45 @@ class _MessageContent extends StatelessWidget {
 
 class _UdhaarCardBubble extends StatelessWidget {
   final ChatMessage msg;
-  const _UdhaarCardBubble({required this.msg});
+  final ChatController controller;
+  const _UdhaarCardBubble({required this.msg, required this.controller});
 
   @override
   Widget build(BuildContext context) {
     final isUpi = msg.paymentMethod == PaymentMethod.upi;
+    final isPending = msg.requestStatus == 'pending';
+
+    // ── Repayment mode label ──
+    final repaymentLabel = _repaymentLabel(msg.udhaarProtection);
+
+    // ── Due date formatting ──
+    String dueDateDisplay = msg.udhaarDueDate ?? '';
+    if (dueDateDisplay.isNotEmpty) {
+      final parsed = DateTime.tryParse(dueDateDisplay);
+      if (parsed != null) {
+        dueDateDisplay = DateFormat('d MMM yyyy').format(parsed);
+      }
+    }
 
     return Align(
-      alignment: Alignment.centerRight,
+      alignment: msg.isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
-        margin: const EdgeInsets.only(bottom: 2),
+        margin: const EdgeInsets.only(bottom: 4),
         padding: const EdgeInsets.all(16),
-        width: Get.width * 0.68,
+        width: Get.width * 0.72,
         decoration: BoxDecoration(
-          color: AppColors.primary,
-          borderRadius: const BorderRadius.only(
-            topLeft: Radius.circular(16),
-            topRight: Radius.circular(16),
-            bottomLeft: Radius.circular(16),
-            bottomRight: Radius.circular(4),
+          color: const Color(0xFF1A1A1A),
+          borderRadius: BorderRadius.only(
+            topLeft: const Radius.circular(16),
+            topRight: const Radius.circular(16),
+            bottomLeft: Radius.circular(msg.isMe ? 16 : 4),
+            bottomRight: Radius.circular(msg.isMe ? 4 : 16),
           ),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ── Label ────────────────────────────────────────────────
+            // ── Label ─────────────────────────────────────────────
             Row(
               children: [
                 const Icon(
@@ -576,7 +591,9 @@ class _UdhaarCardBubble extends StatelessWidget {
                 ),
                 const SizedBox(width: 4),
                 Text(
-                  'Udhaar Requested',
+                  msg.isMe
+                      ? 'Udhaar requested'
+                      : 'Udhaar request from ${msg.accountHolder ?? ''}',
                   style: text11(
                     fontWeight: FontWeight.w500,
                   ).copyWith(color: const Color(0xFF9E9A94)),
@@ -586,7 +603,7 @@ class _UdhaarCardBubble extends StatelessWidget {
 
             const SizedBox(height: 6),
 
-            // ── Amount ───────────────────────────────────────────────
+            // ── Amount ────────────────────────────────────────────
             Text(
               '₹${NumberFormat('#,##,###').format(msg.udhaarAmount ?? 0)}',
               style: const TextStyle(
@@ -600,51 +617,153 @@ class _UdhaarCardBubble extends StatelessWidget {
 
             const SizedBox(height: 10),
 
-            // ── Due date ─────────────────────────────────────────────
-            _UdhaarRow(
-              icon: Icons.calendar_today_outlined,
-              text: 'Due: ${msg.udhaarDueDate ?? ''}',
-            ),
+            // ── Due date ──────────────────────────────────────────
+            if (dueDateDisplay.isNotEmpty)
+              _UdhaarRow(
+                icon: Icons.calendar_today_outlined,
+                text: 'Due: $dueDateDisplay',
+              ),
             const SizedBox(height: 4),
 
-            // ── Protection ───────────────────────────────────────────
-            _UdhaarRow(
-              icon: Icons.verified_user_outlined,
-              text: msg.udhaarProtection ?? '',
-            ),
+            // ── Repayment mode ────────────────────────────────────
+            if (repaymentLabel.isNotEmpty)
+              _UdhaarRow(icon: Icons.autorenew_rounded, text: repaymentLabel),
             const SizedBox(height: 4),
 
-            // ── Payment method ───────────────────────────────────────
+            // ── Payment method ────────────────────────────────────
             _UdhaarRow(
               icon: isUpi
                   ? Icons.account_balance_wallet_outlined
                   : Icons.account_balance_outlined,
               text: isUpi
                   ? 'UPI: ${msg.upiId ?? ''}'
-                  : 'Bank: ${msg.accountNumber ?? ''} (${msg.ifscCode ?? ''})',
+                  : 'Bank: ${msg.accountNumber ?? ''} · ${msg.ifscCode ?? ''}',
             ),
+            const SizedBox(height: 4),
+
+            // ── Reason ────────────────────────────────────────────
+            if (msg.text != null &&
+                msg.text!.isNotEmpty &&
+                msg.text != 'Udhaar request')
+              _UdhaarRow(
+                icon: Icons.chat_bubble_outline_rounded,
+                text: msg.text!,
+              ),
 
             const SizedBox(height: 12),
 
-            // ── Footer ───────────────────────────────────────────────
+            // ── Divider ───────────────────────────────────────────
+            const Divider(color: Color(0x14FFFFFF), height: 1),
+            const SizedBox(height: 12),
+
+            if (!msg.isMe && isPending) ...[
+              Row(
+                children: [
+                  // ── Reject ──
+                  Expanded(
+                    child: Obx(() {
+                      final isLoadingThis =
+                          controller.rejectingRequestId.value == msg.requestId;
+                      final anyLoading =
+                          controller.acceptingRequestId.value.isNotEmpty ||
+                          controller.rejectingRequestId.value.isNotEmpty;
+
+                      return GestureDetector(
+                        onTap: anyLoading
+                            ? null
+                            : () => controller.respondToRequest(
+                                requestId: msg.requestId ?? '',
+                                status: 'declined',
+                                msg: msg,
+                              ),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          height: 38,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: const Color(0x26E53935),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: const Color(0x40E53935)),
+                          ),
+                          child: isLoadingThis
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Color(0xFFFF6B6B),
+                                  ),
+                                )
+                              : Text(
+                                  'Reject',
+                                  style: text13(
+                                    fontWeight: FontWeight.w600,
+                                  ).copyWith(color: const Color(0xFFFF6B6B)),
+                                ),
+                        ),
+                      );
+                    }),
+                  ),
+
+                  const SizedBox(width: 8),
+
+                  // ── Accept ──
+                  Expanded(
+                    child: Obx(() {
+                      final isLoadingThis =
+                          controller.acceptingRequestId.value == msg.requestId;
+                      final anyLoading =
+                          controller.acceptingRequestId.value.isNotEmpty ||
+                          controller.rejectingRequestId.value.isNotEmpty;
+
+                      return GestureDetector(
+                        onTap: anyLoading
+                            ? null
+                            : () => controller.respondToRequest(
+                                requestId: msg.requestId ?? '',
+                                status: 'approved',
+                                msg: msg,
+                              ),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          height: 38,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: const Color(0x303D9C6E),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: const Color(0x4D3D9C6E)),
+                          ),
+                          child: isLoadingThis
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Color(0xFF3D9C6E),
+                                  ),
+                                )
+                              : Text(
+                                  'Accept',
+                                  style: text13(
+                                    fontWeight: FontWeight.w600,
+                                  ).copyWith(color: const Color(0xFF3D9C6E)),
+                                ),
+                        ),
+                      );
+                    }),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+            ],
+
+            // ── Status pill + time ────────────────────────────────
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 3,
-                  ),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFAC775).withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    'Pending Acceptance',
-                    style: text10(
-                      fontWeight: FontWeight.w600,
-                    ).copyWith(color: const Color(0xFFFAC775)),
-                  ),
+                _StatusPill(
+                  status: msg.requestStatus ?? 'pending',
+                  isMe: msg.isMe,
                 ),
                 Text(
                   DateFormat('hh:mm a').format(msg.time),
@@ -656,6 +775,63 @@ class _UdhaarCardBubble extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  String _repaymentLabel(String? mode) {
+    switch (mode) {
+      case 'auto-debit':
+        return 'AutoPay (auto-debit)';
+      case 'micro-debit':
+        return 'Micro debit (daily)';
+      case 'smart-protect':
+        return 'Smart protect';
+      case 'manual':
+        return 'Manual repayment';
+      default:
+        return mode ?? '';
+    }
+  }
+}
+
+class _StatusPill extends StatelessWidget {
+  final String status;
+  final bool isMe;
+  const _StatusPill({required this.status, required this.isMe});
+
+  @override
+  Widget build(BuildContext context) {
+    Color bg, fg;
+    String label;
+
+    switch (status) {
+      case 'approved':
+        bg = const Color(0x303D9C6E);
+        fg = const Color(0xFF3D9C6E);
+        label = isMe ? 'Accepted' : 'You accepted';
+        break;
+      case 'declined':
+        bg = const Color(0x26E53935);
+        fg = const Color(0xFFFF6B6B);
+        label = isMe ? 'Declined' : 'You declined';
+        break;
+      case 'pending':
+      default:
+        bg = const Color(0x26FAC775);
+        fg = const Color(0xFFFAC775);
+        label = isMe ? 'Pending acceptance' : 'Awaiting your response';
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        label,
+        style: text10(fontWeight: FontWeight.w600).copyWith(color: fg),
       ),
     );
   }
@@ -936,6 +1112,7 @@ class _ChatInputBar extends StatelessWidget {
 void _showUdhaarSheet(BuildContext context, ChatController controller) {
   final amountCtrl = TextEditingController();
   final dateCtrl = TextEditingController();
+  final reasonCtr = TextEditingController();
   final upiCtrl = TextEditingController();
   final accNumberCtrl = TextEditingController();
   final ifscCtrl = TextEditingController();
@@ -992,17 +1169,19 @@ void _showUdhaarSheet(BuildContext context, ChatController controller) {
       amount:
           int.tryParse(amountCtrl.text.trim()) ??
           0, // or keep as double if your model supports it
-      reason: "Udhaar Request from Chat", // You can make this dynamic
+      reason: reasonCtr.text.trim(), // You can make this dynamic
       returnDate: DateFormat('yyyy-MM-dd').format(pickedDate!),
       repaymentMode: selectedRepaymentMode.value,
       receiveMethod: receiveMethodStr,
       receiveDetails: receiveDetails,
+      source: "chat",
     );
   }
 
   void sendRequest() async {
     final amount = double.tryParse(amountCtrl.text.trim()) ?? 0;
 
+    // ── Validation (same as before) ──
     if (amount <= 0 || pickedDate == null) {
       AppSnackbar.show(
         title: 'Missing info',
@@ -1011,7 +1190,6 @@ void _showUdhaarSheet(BuildContext context, ChatController controller) {
       );
       return;
     }
-
     if (selectedPayment.value == null) {
       AppSnackbar.show(
         title: 'Missing info',
@@ -1020,7 +1198,6 @@ void _showUdhaarSheet(BuildContext context, ChatController controller) {
       );
       return;
     }
-
     if (selectedPayment.value == PaymentMethod.upi &&
         upiCtrl.text.trim().isEmpty) {
       AppSnackbar.show(
@@ -1030,7 +1207,6 @@ void _showUdhaarSheet(BuildContext context, ChatController controller) {
       );
       return;
     }
-
     if (selectedPayment.value == PaymentMethod.bank &&
         (accNumberCtrl.text.trim().isEmpty ||
             ifscCtrl.text.trim().isEmpty ||
@@ -1043,29 +1219,27 @@ void _showUdhaarSheet(BuildContext context, ChatController controller) {
       return;
     }
 
-    // Build Request Model
-    final model = buildRequestModel();
+    Get.back(); // ← pehle sheet band karo
 
-    try {
-      final LeudhaarRepo repo = LeudhaarRepo();
-      await repo.requestMoney(model);
-
-      Get.back();
-
-      AppSnackbar.show(
-        title: 'Success',
-        message: 'Udhaar request sent successfully!',
-        type: SnackBarType.success,
-      );
-
-      Get.back(); // Close bottom sheet
-    } catch (e) {
-      AppSnackbar.show(
-        title: 'Failed',
-        message: e.toString(),
-        type: SnackBarType.error,
-      );
-    }
+    // ── Controller ke through bhejo ──
+    await controller.sendUdhaarFromSheet(
+      model: buildRequestModel(),
+      amount: amount,
+      returnDate: DateFormat('yyyy-MM-dd').format(pickedDate!),
+      repaymentMode: selectedRepaymentMode.value,
+      receiveMethod: selectedPayment.value == PaymentMethod.upi
+          ? 'upi'
+          : 'bankTransfer',
+      upiId: upiCtrl.text.trim().isEmpty ? null : upiCtrl.text.trim(),
+      accountNumber: accNumberCtrl.text.trim().isEmpty
+          ? null
+          : accNumberCtrl.text.trim(),
+      ifscCode: ifscCtrl.text.trim().isEmpty ? null : ifscCtrl.text.trim(),
+      accountHolderName: holderCtrl.text.trim().isEmpty
+          ? null
+          : holderCtrl.text.trim(),
+      reason: reasonCtr.text.trim().isEmpty ? null : reasonCtr.text.trim(),
+    );
   }
 
   Get.bottomSheet(
@@ -1081,6 +1255,7 @@ void _showUdhaarSheet(BuildContext context, ChatController controller) {
           key: const ValueKey('loan'),
           amountCtrl: amountCtrl,
           dateCtrl: dateCtrl,
+          reasonCtr: reasonCtr,
           selectedRepaymentMode: selectedRepaymentMode,
           selectedPayment: selectedPayment,
           upiCtrl: upiCtrl,
@@ -1106,6 +1281,7 @@ Widget _buildLoanDetailsStep({
   Key? key,
   required TextEditingController amountCtrl,
   required TextEditingController dateCtrl,
+  required TextEditingController reasonCtr,
   required RxString selectedRepaymentMode,
   required Rxn<PaymentMethod> selectedPayment,
   required TextEditingController upiCtrl,
@@ -1171,6 +1347,15 @@ Widget _buildLoanDetailsStep({
             ),
           ),
         ),
+      ),
+      const SizedBox(height: 20),
+
+      const _SheetLabel('Reason'),
+      const SizedBox(height: 8),
+      _SheetTextField(
+        controller: reasonCtr,
+        hint: 'reason',
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
       ),
 
       const SizedBox(height: 24),
@@ -1318,15 +1503,6 @@ final List<Map<String, dynamic>> _sheetPaymentMethods = [
     'icon': Icons.account_balance_rounded,
   },
 ];
-
-// String _repaymentModeTitle(String type) {
-//   for (final mode in _sheetRepaymentModes) {
-//     if (mode['type'] == type) {
-//       return mode['title'].toString();
-//     }
-//   }
-//   return type;
-// }
 
 Widget _buildSheetPaymentFields({
   required Rxn<PaymentMethod> selectedPayment,

@@ -53,7 +53,8 @@ class Message {
     this.receiver,
     this.messageType,
     this.text,
-    this.attachment, // ← NEW
+    this.attachment,
+    this.moneyRequest,
     this.status,
     this.isRead,
     this.readAt,
@@ -67,7 +68,8 @@ class Message {
   final String? messageType;
   final String? text;
   final String? status;
-  final Map<String, dynamic>? attachment; // ← NEW (Important)
+  final Map<String, dynamic>? attachment;
+  final Map<String, dynamic>? moneyRequest;
   final bool? isRead;
   final DateTime? readAt;
   final DateTime? createdAt;
@@ -83,6 +85,9 @@ class Message {
       status: json['status'],
       attachment: json["attachment"] is Map<String, dynamic>
           ? json["attachment"] as Map<String, dynamic>
+          : null,
+      moneyRequest: json["moneyRequest"] is Map<String, dynamic>
+          ? json["moneyRequest"] as Map<String, dynamic>
           : null,
       isRead: json["isRead"],
       readAt: DateTime.tryParse(json["readAt"] ?? ""),

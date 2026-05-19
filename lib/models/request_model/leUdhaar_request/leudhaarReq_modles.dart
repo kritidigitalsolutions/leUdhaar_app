@@ -6,6 +6,7 @@ class RequestMoneyReqModel {
   final String repaymentMode;
   final String receiveMethod;
   final ReceiveDetails receiveDetails;
+  final String source;
 
   RequestMoneyReqModel({
     required this.requestTo,
@@ -15,6 +16,7 @@ class RequestMoneyReqModel {
     required this.repaymentMode,
     required this.receiveMethod,
     required this.receiveDetails,
+    required this.source,
   });
 
   Map<String, dynamic> toJson() {
@@ -26,6 +28,7 @@ class RequestMoneyReqModel {
       "repaymentMode": repaymentMode,
       "receiveMethod": receiveMethod,
       "receiveDetails": receiveDetails.toJson(),
+      "source": source,
     };
   }
 }

@@ -1,6 +1,6 @@
 class AppUrls {
-  static const String baseUrl = "http://192.168.1.15:5005/api";
-  static const String imageBaseUrl = "http://192.168.1.15:5005";
+  static const String baseUrl = "http://192.168.1.19:5005/api";
+  static const String imageBaseUrl = "http://192.168.1.19:5005";
 
   //--------------------------------------------------
   //auth

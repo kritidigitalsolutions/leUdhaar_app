@@ -6,6 +6,9 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:get/get.dart' hide FormData, MultipartFile;
+import 'package:intl/intl.dart';
+import 'package:leudaar_app/models/request_model/leUdhaar_request/leudhaarReq_modles.dart';
+import 'package:leudaar_app/utils/custom_snackbar.dart';
 import 'package:leudaar_app/utils/service/socket_service.dart';
 import 'package:path/path.dart' as p;
 import 'package:image_picker/image_picker.dart';
@@ -271,6 +274,7 @@ class ChatMessage {
   final String? status; // 'sent' | 'delivered' | 'read'
 
   // Udhaar-specific
+
   final double? udhaarAmount;
   final String? udhaarDueDate;
   final String? udhaarProtection;
@@ -308,6 +312,33 @@ class ChatMessage {
     this.requestStatus,
   });
 
+  // ChatMessage mein full constructor wali jagah ek helper add karo
+  ChatMessage withRequestStatus(String newStatus) {
+    return ChatMessage(
+      id: id,
+      text: text,
+      fileName: fileName,
+      imagePath: imagePath,
+      imageUrl: imageUrl,
+      fileUrl: fileUrl,
+      isMe: isMe,
+      time: time,
+      type: type,
+      isPending: isPending,
+      status: status,
+      udhaarAmount: udhaarAmount,
+      udhaarDueDate: udhaarDueDate,
+      udhaarProtection: udhaarProtection,
+      paymentMethod: paymentMethod,
+      upiId: upiId,
+      accountNumber: accountNumber,
+      ifscCode: ifscCode,
+      accountHolder: accountHolder,
+      requestId: requestId,
+      requestStatus: newStatus,
+    );
+  }
+
   factory ChatMessage.fromSocket(Map<String, dynamic> json, String myUserId) {
     final senderId = json['sender']?.toString() ?? '';
     final attachment = json['attachment'] as Map<String, dynamic>?;
@@ -324,7 +355,7 @@ class ChatMessage {
 
       if (url != null && url.isNotEmpty) {
         final fullUrl = url.startsWith('/')
-            ? 'http://192.168.1.15:5005$url'
+            ? 'http://192.168.1.19:5005$url'
             : url;
         if (json['messageType'] == 'image') {
           serverImageUrl = fullUrl;
@@ -395,12 +426,13 @@ class ChatMessage {
   }
 
   static MessageType _parseMessageType(String raw) {
-    switch (raw.toLowerCase()) {
+    switch (raw) {
       case 'image':
         return MessageType.image;
       case 'file':
         return MessageType.file;
       case 'udhaar':
+      case 'moneyRequest': // ← ADD THIS
         return MessageType.udhaar;
       default:
         return MessageType.text;
@@ -481,6 +513,7 @@ class ChatController extends GetxController {
 
   // ── Repos ────────────────────────────────────────────────────────────────
   final _repo = ProfileRepo();
+  final LeudhaarRepo leRepo = LeudhaarRepo();
   final clearAllChatRes = Rx<ApiResponse<Map<String, dynamic>>?>(null);
   final msgRes = Rx<ApiResponse<Map<String, dynamic>>?>(null);
 
@@ -491,7 +524,7 @@ class ChatController extends GetxController {
   // ── SocketService (shared, for presence + unread) ────────────────────────
   late final SocketService _socketService;
 
-  static const String _serverUrl = 'http://192.168.1.15:5005';
+  static const String _serverUrl = 'http://192.168.1.19:5005';
 
   // ─────────────────────────────────────────────────────────────────────────
   @override
@@ -607,6 +640,47 @@ class ChatController extends GetxController {
 
       if (model.success == true && model.data != null) {
         final fetched = model.data!.messages.map((m) {
+          // Check if it's a money request message
+          final isMoneyRequest =
+              m.messageType == 'moneyRequest' && m.moneyRequest != null;
+          final mr = m.moneyRequest;
+
+          if (isMoneyRequest && mr != null) {
+            final receiveMethod = mr['receiveMethod']?.toString();
+            final receiveDetails = mr['receiveDetails'] as Map?;
+            final payMethod = receiveMethod == 'upi'
+                ? PaymentMethod.upi
+                : PaymentMethod.bank;
+
+            final returnDateRaw = mr['returnDate']?.toString();
+            String? formattedDueDate;
+            if (returnDateRaw != null) {
+              final parsed = DateTime.tryParse(returnDateRaw);
+              if (parsed != null) {
+                formattedDueDate = DateFormat('yyyy-MM-dd').format(parsed);
+              }
+            }
+
+            return ChatMessage(
+              id: m.id,
+              isMe: m.sender == _myUserId,
+              time: m.createdAt ?? DateTime.now(),
+              type: MessageType.udhaar,
+              isPending: false,
+              status: m.status ?? 'sent',
+              udhaarAmount: (mr['amount'] as num?)?.toDouble(),
+              udhaarDueDate: formattedDueDate,
+              udhaarProtection: mr['repaymentMode']?.toString(),
+              paymentMethod: payMethod,
+              upiId: receiveDetails?['upiId']?.toString(),
+              accountNumber: receiveDetails?['accountNumber']?.toString(),
+              ifscCode: receiveDetails?['ifscCode']?.toString(),
+              accountHolder: receiveDetails?['accountHolderName']?.toString(),
+              requestId: mr['_id']?.toString(),
+              requestStatus: mr['status']?.toString() ?? 'pending',
+            );
+          }
+
           return ChatMessage(
             id: m.id,
             text: m.text,
@@ -733,9 +807,70 @@ class ChatController extends GetxController {
       }
 
       try {
+        // ── moneyRequest type handle karo ──────────────────────────
+        final msgType = data['messageType']?.toString() ?? '';
+
+        if (msgType == 'moneyRequest') {
+          final mr = data['moneyRequest'] as Map<String, dynamic>?;
+          if (mr == null) return;
+
+          final senderId = data['sender']?.toString() ?? '';
+          final receiveMethod = mr['receiveMethod']?.toString();
+          final receiveDetails = mr['receiveDetails'] as Map?;
+          final payMethod = receiveMethod == 'upi'
+              ? PaymentMethod.upi
+              : PaymentMethod.bank;
+
+          final returnDateRaw = mr['returnDate']?.toString();
+          String? formattedDueDate;
+          if (returnDateRaw != null) {
+            final parsed = DateTime.tryParse(returnDateRaw);
+            if (parsed != null) {
+              formattedDueDate = DateFormat('yyyy-MM-dd').format(parsed);
+            }
+          }
+
+          final requestId = mr['_id']?.toString();
+
+          // duplicate check
+          if (messages.any(
+            (m) => m.requestId == requestId && requestId != null,
+          )) {
+            return;
+          }
+
+          final msg = ChatMessage(
+            id: data['_id']?.toString(),
+            text: mr['reason']?.toString(),
+            isMe: senderId == _myUserId,
+            time: data['createdAt'] != null
+                ? DateTime.tryParse(data['createdAt'].toString()) ??
+                      DateTime.now()
+                : DateTime.now(),
+            type: MessageType.udhaar,
+            isPending: false,
+            status: 'sent',
+            udhaarAmount: (mr['amount'] as num?)?.toDouble(),
+            udhaarDueDate: formattedDueDate,
+            udhaarProtection: mr['repaymentMode']?.toString(),
+            paymentMethod: payMethod,
+            upiId: receiveDetails?['upiId']?.toString(),
+            accountNumber: receiveDetails?['accountNumber']?.toString(),
+            ifscCode: receiveDetails?['ifscCode']?.toString(),
+            accountHolder: receiveDetails?['accountHolderName']?.toString(),
+            requestId: requestId,
+            requestStatus: mr['status']?.toString() ?? 'pending',
+          );
+
+          messages.add(msg);
+          _sortMessages();
+          _markRead();
+          return; // ← yahan return karo, neeche wala flow skip hoga
+        }
+
+        // ── normal messages (text/image/file) ──────────────────────
         final msg = ChatMessage.fromSocket(data, _myUserId);
 
-        // Remove matching pending optimistic message
         messages.removeWhere(
           (m) =>
               m.isPending &&
@@ -750,19 +885,12 @@ class ChatController extends GetxController {
 
         _sortMessages();
         _markRead();
-
-        // Clear unread in SocketService for this chat
-        if (!msg.isMe) {
-          // We'll find chatId from the message or from the join ack
-          // SocketService unread cleared via message:read ack from server
-        }
       } catch (e) {
         _debug('Parse error in message:new: $e');
       }
     });
-
     // ── Message Read (update tick status) ─────────────────────────────
-    // Server emits to chat room: message:read
+
     // Payload: { chatId, readBy, readAt, messageIds }
     _socket?.on('message:read', (raw) {
       _debug('message:read event: $raw');
@@ -793,10 +921,6 @@ class ChatController extends GetxController {
     });
 
     // ── Request Money received ─────────────────────────────────────────
-    // When someone sends you a money request, server broadcasts it
-    // as a message with messageType='udhaar' via message:new,
-    // OR as a dedicated 'request:new' event.
-    // We handle both here.
     _socket?.on('request:new', (raw) {
       _debug('request:new received: $raw');
       if (raw == null) return;
@@ -811,51 +935,62 @@ class ChatController extends GetxController {
           return;
         }
 
-        final requestData = data['request'] as Map<String, dynamic>? ?? data;
+        // Server 'request:new' mein seedha request object bhejta hai
+        // ya { request: {...} } ke andar
+        final mr = (data['request'] as Map<String, dynamic>?) ?? data;
+
+        final requestId = mr['_id']?.toString() ?? mr['id']?.toString();
+
+        // Agar pehle se message:new se aa gaya to skip karo
+        if (requestId != null &&
+            messages.any((m) => m.requestId == requestId)) {
+          _debug('request:new: already exists via message:new, skipping');
+          return;
+        }
+
         final senderId =
-            requestData['requestBy']?.toString() ??
-            requestData['sender']?.toString() ??
+            mr['requestBy']?.toString() ??
+            mr['requestFrom']?['_id']?.toString() ??
             '';
-
-        // Only show if it's from the current chat partner
-        if (senderId != otherUserId && senderId != _myUserId) return;
-
-        final amount = (requestData['amount'] as num?)?.toDouble();
-        final returnDate = requestData['returnDate']?.toString();
-        final receiveMethod = requestData['receiveMethod']?.toString();
-        final receiveDetails = requestData['receiveDetails'] as Map?;
-        final requestId =
-            requestData['_id']?.toString() ?? requestData['id']?.toString();
-
-        final paymentMethod = receiveMethod == 'upi'
+        final receiveMethod = mr['receiveMethod']?.toString();
+        final receiveDetails = mr['receiveDetails'] as Map?;
+        final payMethod = receiveMethod == 'upi'
             ? PaymentMethod.upi
             : PaymentMethod.bank;
 
+        final returnDateRaw = mr['returnDate']?.toString();
+        String? formattedDueDate;
+        if (returnDateRaw != null) {
+          final parsed = DateTime.tryParse(returnDateRaw);
+          if (parsed != null) {
+            formattedDueDate = DateFormat('yyyy-MM-dd').format(parsed);
+          }
+        }
+
         final msg = ChatMessage(
           id: requestId,
+          text: mr['reason']?.toString(),
           isMe: senderId == _myUserId,
-          time: DateTime.now(),
+          time: mr['createdAt'] != null
+              ? DateTime.tryParse(mr['createdAt'].toString()) ?? DateTime.now()
+              : DateTime.now(),
           type: MessageType.udhaar,
-          udhaarAmount: amount,
-          udhaarDueDate: returnDate,
-          udhaarProtection: requestData['repaymentMode']?.toString(),
-          paymentMethod: paymentMethod,
+          isPending: false,
+          status: 'sent',
+          udhaarAmount: (mr['amount'] as num?)?.toDouble(),
+          udhaarDueDate: formattedDueDate,
+          udhaarProtection: mr['repaymentMode']?.toString(),
+          paymentMethod: payMethod,
           upiId: receiveDetails?['upiId']?.toString(),
           accountNumber: receiveDetails?['accountNumber']?.toString(),
           ifscCode: receiveDetails?['ifscCode']?.toString(),
           accountHolder: receiveDetails?['accountHolderName']?.toString(),
           requestId: requestId,
-          requestStatus: requestData['status']?.toString() ?? 'pending',
-          isPending: false,
-          status: 'sent',
+          requestStatus: mr['status']?.toString() ?? 'pending',
         );
 
-        if (!messages.any(
-          (m) => m.requestId == requestId && requestId != null,
-        )) {
-          messages.add(msg);
-          _sortMessages();
-        }
+        messages.add(msg);
+        _sortMessages();
       } catch (e) {
         _debug('request:new parse error: $e');
       }
@@ -1082,108 +1217,34 @@ class ChatController extends GetxController {
   }
 
   // ── Request Money (Udhaar) ────────────────────────────────────────────────
-  //
-  // Flow:
-  //   1. User fills form → calls sendUdhaarRequest()
-  //   2. We call REST API to create the request
-  //   3. Server broadcasts 'request:new' or 'message:new' (messageType=udhaar)
-  //      to the other user via socket
-  //   4. We add an optimistic message locally; socket confirms it
-  //
-  Future<void> sendUdhaarRequest({
-    required int amount,
+  Future<void> sendUdhaarFromSheet({
+    required RequestMoneyReqModel model,
+    // Local fields for optimistic bubble
+    required double amount,
     required String returnDate,
     required String repaymentMode,
     required String receiveMethod,
     String? upiId,
-    String? accountHolderName,
     String? accountNumber,
     String? ifscCode,
+    String? accountHolderName,
+    String? reason,
   }) async {
-    if (isSendingRequest.value) return;
-    isSendingRequest.value = true;
+    isSending.value = true;
 
-    // Optimistic bubble
-    final optimistic = ChatMessage(
-      isMe: true,
-      time: DateTime.now(),
-      type: MessageType.udhaar,
-      isPending: true,
-      status: 'sent',
-      udhaarAmount: amount.toDouble(),
-      udhaarDueDate: returnDate,
-      udhaarProtection: repaymentMode,
-      paymentMethod: receiveMethod == 'upi'
-          ? PaymentMethod.upi
-          : PaymentMethod.bank,
-      upiId: upiId,
-      accountNumber: accountNumber,
-      ifscCode: ifscCode,
-      accountHolder: accountHolderName,
-      requestStatus: 'pending',
-    );
-
-    messages.add(optimistic);
     _sortMessages();
 
     try {
-      final token = AuthStorage.getToken();
-      final dio = Dio();
-      dio.options.headers['Authorization'] = 'Bearer $token';
-
-      final body = {
-        'requestTo': otherUserId,
-        'amount': amount,
-        'reason': 'Udhaar Request from Chat',
-        'returnDate': returnDate,
-        'repaymentMode': repaymentMode,
-        'receiveMethod': receiveMethod,
-        'receiveDetails': receiveMethod == 'upi'
-            ? {'upiId': upiId}
-            : {
-                'accountHolderName': accountHolderName,
-                'accountNumber': accountNumber,
-                'ifscCode': ifscCode,
-              },
-      };
-
-      final response = await dio.post(
-        '$_serverUrl/api/user/leudhaar/request-money',
-        data: body,
-      );
-
-      final res = response.data as Map<String, dynamic>?;
-
-      if (res?['success'] == true) {
-        final requestId =
-            res?['data']?['_id']?.toString() ??
-            res?['data']?['request']?['_id']?.toString();
-
-        // Confirm optimistic message
-        final idx = messages.indexOf(optimistic);
-        if (idx != -1) {
-          messages[idx] = optimistic.copyWith(
-            id: requestId,
-            isPending: false,
-            requestStatus: 'pending',
-          );
-        }
-
-        _debug('Request money sent: id=$requestId');
-      } else {
-        messages.remove(optimistic);
-        Get.snackbar(
-          'Failed',
-          res?['message']?.toString() ?? 'Could not send request',
-          snackPosition: SnackPosition.TOP,
-        );
-      }
+      await leRepo.requestMoney(model);
     } catch (e) {
-      messages.remove(optimistic);
-      _debug('sendUdhaarRequest error: $e');
-      Get.snackbar('Error', e.toString(), snackPosition: SnackPosition.TOP);
+      _debug('sendUdhaarFromSheet error: $e');
+      AppSnackbar.show(
+        title: 'Error',
+        message: e.toString(),
+        type: SnackBarType.error,
+      );
     } finally {
-      isSendingRequest.value = false;
+      isSending.value = false;
     }
   }
 
@@ -1208,5 +1269,62 @@ class ChatController extends GetxController {
 
   void _debug(String message) {
     debugPrint('[ChatController] $message');
+  }
+
+  // money request approvel and reject api
+
+  final acceptingRequestId = ''.obs; // jo request accept ho rahi hai uska id
+  final rejectingRequestId = ''.obs;
+
+  Future<void> respondToRequest({
+    required String requestId,
+    required String status,
+    required ChatMessage msg,
+  }) async {
+    // ── Specific request ka id set karo ──
+    if (status == 'approved') {
+      acceptingRequestId.value = requestId;
+    } else {
+      rejectingRequestId.value = requestId;
+    }
+
+    try {
+      final response = await leRepo.rejectApprovel(requestId, status);
+
+      if (response.status == Status.completed &&
+          response.data?['success'] == true) {
+        final idx = messages.indexWhere((m) => m.requestId == requestId);
+        if (idx != -1) {
+          messages[idx] = messages[idx].withRequestStatus(
+            status == 'approved' ? 'approved' : 'declined',
+          );
+          messages.refresh();
+        }
+
+        AppSnackbar.show(
+          title: status == 'approved' ? 'Accepted' : 'Rejected',
+          message: response.data?['message'] ?? 'Done',
+          type: status == 'approved'
+              ? SnackBarType.success
+              : SnackBarType.error,
+        );
+      } else {
+        AppSnackbar.show(
+          title: 'Failed',
+          message: response.data?['message'] ?? 'Something went wrong',
+          type: SnackBarType.error,
+        );
+      }
+    } catch (e) {
+      AppSnackbar.show(
+        title: 'Error',
+        message: e.toString(),
+        type: SnackBarType.error,
+      );
+    } finally {
+      // ── Clear karo ──
+      acceptingRequestId.value = '';
+      rejectingRequestId.value = '';
+    }
   }
 }

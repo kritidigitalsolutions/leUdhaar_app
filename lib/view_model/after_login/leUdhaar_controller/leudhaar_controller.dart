@@ -190,6 +190,7 @@ class RequestMoneyController extends GetxController {
       repaymentMode: selectedRepaymentMode.value,
       receiveMethod: paymentMethod,
       receiveDetails: receiveDetails,
+      source: '',
     );
   }
 
