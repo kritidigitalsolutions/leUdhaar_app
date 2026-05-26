@@ -5,6 +5,7 @@ import 'package:leudaar_app/models/response_model/leudhaar_res/contact_checked_r
 
 import 'package:leudaar_app/res/app_colors.dart';
 import 'package:leudaar_app/routes/app_routes.dart';
+import 'package:leudaar_app/utils/service/helper_methods.dart';
 import 'package:leudaar_app/utils/textstyle.dart';
 import 'package:leudaar_app/view_model/after_login/leUdhaar_controller/chat_controller.dart';
 
@@ -126,25 +127,114 @@ class ChatSearchScreen extends StatelessWidget {
                       )
                     else
                       ...controller.filteredUnregistered.map(
-                        (c) => _UnregisteredTile(
-                          contact: c,
-                          localContact: controller.getLocalContact(c),
-                          onInvite: () {
-                            // TODO: trigger share/SMS invite
-                            final phone = c.inputPhone ?? '';
-                            Get.snackbar(
-                              'Invite sent',
-                              'Invitation shared with $phone',
-                              backgroundColor: Colors.white,
-                              colorText: const Color(0xFF1A1A1A),
-                              snackPosition: SnackPosition.BOTTOM,
-                            );
-                          },
-                        ),
+                        (c) => _unregisteredTile(c),
                       ),
                   ],
                 );
               }),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _unregisteredTile(LeUdhaarContact lc) {
+    final Contact? local = controller.getLocalContact(lc);
+    final String name = local?.displayName ?? lc.inputPhone ?? '';
+    final String phone = lc.normalizedPhone ?? lc.inputPhone ?? '';
+    final String initials = _initials(name);
+    final bool hasPhoto = local?.photo != null;
+    final bool canWhatsapp = lc.actions?.canSendWhatsapp == true;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: AppColors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.grey200),
+      ),
+      child: Row(
+        children: [
+          // Avatar
+          CircleAvatar(
+            radius: 22,
+            backgroundColor: AppColors.grey300,
+            backgroundImage: hasPhoto
+                ? MemoryImage(local!.photo!.thumbnail!)
+                : null,
+            child: hasPhoto
+                ? null
+                : Text(
+                    initials,
+                    style: text13(
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.white,
+                    ),
+                  ),
+          ),
+          const SizedBox(width: 12),
+
+          // Name & phone
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name,
+                  style: text14(
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(phone, style: text12(color: AppColors.textSecondary)),
+              ],
+            ),
+          ),
+
+          // WhatsApp invite
+          if (canWhatsapp) ...[
+            GestureDetector(
+              onTap: () => shareViaWhatsApp(name, lc.actions?.inviteLink),
+              child: Container(
+                margin: const EdgeInsets.only(right: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 7,
+                ),
+                decoration: BoxDecoration(
+                  color: AppColors.success,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  'WhatsApp',
+                  style: text12(
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.white,
+                  ),
+                ),
+              ),
+            ),
+          ],
+
+          // General share / Invite
+          GestureDetector(
+            onTap: () => shareInvite(name, lc.actions?.inviteLink),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+              decoration: BoxDecoration(
+                color: AppColors.button,
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text(
+                'Invite',
+                style: text12(
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.white,
+                ),
+              ),
             ),
           ),
         ],

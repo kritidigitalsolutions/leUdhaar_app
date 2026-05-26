@@ -2,6 +2,8 @@ import 'package:get/get.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'package:flutter/foundation.dart';
 
+import '../../res/app_urls.dart';
+
 class SocketService extends GetxService {
   IO.Socket? socket;
 
@@ -19,7 +21,7 @@ class SocketService extends GetxService {
   /// Total unread across all chats
   final totalUnread = 0.obs;
 
-  static const String serverUrl = 'http://192.168.1.19:5005';
+  static const String serverUrl = AppUrls.imageBaseUrl;
 
   String? token;
   String? myUserId;

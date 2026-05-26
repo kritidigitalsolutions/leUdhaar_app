@@ -5,10 +5,8 @@ import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import 'package:leudaar_app/data/api_response.dart';
 import 'package:leudaar_app/models/request_model/leUdhaar_request/leudhaarReq_modles.dart';
-import 'package:leudaar_app/repo/leUdhaar_repo.dart';
 
 import 'package:leudaar_app/res/app_colors.dart';
-import 'package:leudaar_app/utils/custom_button.dart';
 import 'package:leudaar_app/utils/custom_snackbar.dart';
 import 'package:leudaar_app/utils/service/socket_service.dart';
 import 'package:leudaar_app/utils/textstyle.dart';
@@ -1352,11 +1350,7 @@ Widget _buildLoanDetailsStep({
 
       const _SheetLabel('Reason'),
       const SizedBox(height: 8),
-      _SheetTextField(
-        controller: reasonCtr,
-        hint: 'reason',
-        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-      ),
+      _SheetTextField(controller: reasonCtr, hint: 'reason'),
 
       const SizedBox(height: 24),
 

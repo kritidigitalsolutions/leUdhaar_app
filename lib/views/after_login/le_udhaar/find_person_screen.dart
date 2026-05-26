@@ -4,10 +4,10 @@ import 'package:get/get.dart';
 import 'package:leudaar_app/models/response_model/leudhaar_res/contact_checked_res_model.dart';
 import 'package:leudaar_app/res/app_colors.dart';
 import 'package:leudaar_app/routes/app_routes.dart';
+import 'package:leudaar_app/utils/service/helper_methods.dart';
 import 'package:leudaar_app/utils/textstyle.dart';
 import 'package:leudaar_app/view_model/after_login/leUdhaar_controller/chat_controller.dart';
 import 'package:leudaar_app/views/custom_widget/custom_widget.dart';
-import 'package:share_plus/share_plus.dart';
 
 class FindPersonScreen extends StatefulWidget {
   const FindPersonScreen({super.key});
@@ -457,7 +457,7 @@ class _FindPersonScreenState extends State<FindPersonScreen> {
           // WhatsApp invite
           if (canWhatsapp) ...[
             GestureDetector(
-              onTap: () => _shareViaWhatsApp(name, lc.actions?.inviteLink),
+              onTap: () => shareViaWhatsApp(name, lc.actions?.inviteLink),
               child: Container(
                 margin: const EdgeInsets.only(right: 8),
                 padding: const EdgeInsets.symmetric(
@@ -481,7 +481,7 @@ class _FindPersonScreenState extends State<FindPersonScreen> {
 
           // General share / Invite
           GestureDetector(
-            onTap: () => _shareInvite(name, lc.actions?.inviteLink),
+            onTap: () => shareInvite(name, lc.actions?.inviteLink),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
               decoration: BoxDecoration(
@@ -543,26 +543,6 @@ class _FindPersonScreenState extends State<FindPersonScreen> {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 10),
       child: Text(msg, style: text13(color: AppColors.textSecondary)),
-    );
-  }
-
-  void _shareViaWhatsApp(String name, dynamic inviteLink) {
-    final link =
-        inviteLink?.toString() ?? 'https://leudaar.app/refer?user=your_user_id';
-    final message =
-        "Hey $name 👋\n\nJoin me on Le'Udhaar — stress-free lending & borrowing!\n\n$link";
-    SharePlus.instance.share(
-      ShareParams(text: message, subject: "Join me on Le'Udhaar"),
-    );
-  }
-
-  void _shareInvite(String name, dynamic inviteLink) {
-    final link =
-        inviteLink?.toString() ?? 'https://leudaar.app/refer?user=your_user_id';
-    final message =
-        "Hey $name 👋\n\nI've invited you to join Le'Udhaar — a stress-free & automated platform for lending, borrowing, and repayments.\n\nJoin now:\n$link";
-    SharePlus.instance.share(
-      ShareParams(text: message, subject: "Join me on Le'Udhaar"),
     );
   }
 }

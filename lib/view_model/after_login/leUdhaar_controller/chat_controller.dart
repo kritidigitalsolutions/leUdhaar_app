@@ -21,6 +21,8 @@ import 'package:leudaar_app/repo/profile_repo.dart';
 import 'package:leudaar_app/utils/service/local_storage/auth_storage.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 
+import '../../../res/app_urls.dart';
+
 class ChatListController extends GetxController {
   final _repo = ProfileRepo();
 
@@ -524,7 +526,7 @@ class ChatController extends GetxController {
   // ── SocketService (shared, for presence + unread) ────────────────────────
   late final SocketService _socketService;
 
-  static const String _serverUrl = 'http://192.168.1.19:5005';
+  static const String _serverUrl = AppUrls.imageBaseUrl;
 
   // ─────────────────────────────────────────────────────────────────────────
   @override
