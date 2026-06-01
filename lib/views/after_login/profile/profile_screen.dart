@@ -315,8 +315,7 @@ class ProfileScreen extends StatelessWidget {
                     ),
 
                     // Version footer
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 24),
+                    SafeArea(
                       child: Center(
                         child: Text(
                           'Leudaar v1.0.0',
@@ -324,6 +323,7 @@ class ProfileScreen extends StatelessWidget {
                         ),
                       ),
                     ),
+                    SizedBox(height: 20),
                   ],
                 ),
               ),

@@ -120,42 +120,44 @@ class _LogoutBottomSheet extends StatelessWidget {
           const SizedBox(height: 24),
 
           // Action buttons
-          Row(
-            children: [
-              Expanded(
-                child: SizedBox(
-                  height: 50,
-                  child: OutlinedButton(
-                    onPressed: () => Navigator.pop(context),
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: AppColors.grey300),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+          SafeArea(
+            child: Row(
+              children: [
+                Expanded(
+                  child: SizedBox(
+                    height: 50,
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(context),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: AppColors.grey300),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                       ),
-                    ),
-                    child: Text(
-                      'Cancel',
-                      style: text15(
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.textPrimary,
+                      child: Text(
+                        'Cancel',
+                        style: text15(
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textPrimary,
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: AppButton(
-                  color: AppColors.error,
-                  height: 50,
-                  title: 'Yes, sign out',
-                  onTap: () async {
-                    await AuthStorage.clear();
-                    Get.offAllNamed(AppRoutes.registerPage);
-                  },
+                const SizedBox(width: 12),
+                Expanded(
+                  child: AppButton(
+                    color: AppColors.error,
+                    height: 50,
+                    title: 'Yes, sign out',
+                    onTap: () async {
+                      await AuthStorage.clear();
+                      Get.offAllNamed(AppRoutes.registerPage);
+                    },
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ],
       ),

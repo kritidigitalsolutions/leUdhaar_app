@@ -1,4 +1,4 @@
-package com.example.leudaar_app
+package com.trustrail.app
 
 import io.flutter.embedding.android.FlutterActivity
 

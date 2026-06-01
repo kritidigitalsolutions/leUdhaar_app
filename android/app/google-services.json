@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "553401825200",
+    "project_id": "trustrail",
+    "storage_bucket": "trustrail.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:553401825200:android:bd7c828112dcc45d558875",
+        "android_client_info": {
+          "package_name": "com.trustrail.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDgQRX0r09FPZ6oSJ3nNmlxGen0UgqjUtk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

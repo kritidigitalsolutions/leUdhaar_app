@@ -1,6 +1,6 @@
 class AppUrls {
-  static const String baseUrl = "http://192.168.1.22:8001/api";
-  static const String imageBaseUrl = "http://192.168.1.22:8001";
+  static const String baseUrl = "http://192.168.1.16:8001/api";
+  static const String imageBaseUrl = "http://192.168.1.16:8001";
 
   //--------------------------------------------------
   //auth
@@ -36,4 +36,11 @@ class AppUrls {
   static const String chatList = '$baseUrl/user/chats';
   static const String chats = '$baseUrl/user/chats/with';
   static const String message = '$baseUrl/user/chats/messages';
+
+  // ===============================================================
+// payment
+// ------------------------------------------------------------------------
+
+static const String createOrder = "$baseUrl/payments/money-transfer";
+  static const String verifyPayment = "$baseUrl/payments/verify-payment";
 }
